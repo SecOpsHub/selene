@@ -16,25 +16,40 @@ accounts.
 
 ---
 
-## 2. S3 Bucket Structure
+## 2. S3 Bucket and Trail
 
-CloudTrail writes logs to the management account S3 bucket using this
-path structure:
+**CloudTrail trail:** `full-org-events`
+**S3 bucket:** `logs.infillion.com`
+**Organization ID:** `o-z70v8p3t14`
+**Region:** `us-east-1` (multi-region trail — logs from all regions land here)
+
+> Note: A second trail (`cloudtrail-from-cf`) exists pointing to a
+> Presidio-managed bucket. This is a legacy/vendor trail. Selene
+> reads only from `logs.infillion.com`.
+
+**IMPORTANT — Org-level path structure:**
+This is an organization-level CloudTrail trail. The S3 path includes
+the AWS Organization ID as an intermediate prefix between `AWSLogs/`
+and the account ID. This is different from a standard per-account trail.
 
 ```
-AWSLogs/
-└── {account-id}/
-    └── CloudTrail/
-        └── {region}/
-            └── {year}/
-                └── {month}/
-                    └── {day}/
-                        └── {account-id}_CloudTrail_{region}_{timestamp}_{hash}.json.gz
+s3://logs.infillion.com/
+└── AWSLogs/
+    └── o-z70v8p3t14/              ← Organization ID (not account ID)
+        └── {account-id}/
+            ├── CloudTrail/
+            │   └── {region}/{year}/{month}/{day}/
+            │       └── {account-id}_CloudTrail_{region}_{timestamp}_{hash}.json.gz
+            ├── CloudTrail-Digest/
+            └── CloudTrail-Insight/
 ```
 
-All 60 member accounts write under the same `AWSLogs/` prefix. The
-Wazuh `aws-s3` wodle is configured with `path: AWSLogs/` to capture
-all accounts in a single integration block.
+All ~60 member accounts confirmed present under the org prefix.
+All AWS regions confirmed per account (16 regions active).
+
+**Note on management account logs:** The management account (757548139022)
+also has logs directly under `AWSLogs/757548139022/` without the org prefix.
+Selene reads from the org prefix only — `AWSLogs/o-z70v8p3t14/`.
 
 ---
 
@@ -45,12 +60,19 @@ Key parameters:
 
 | Parameter | Value | Rationale |
 |---|---|---|
-| `bucket` | CloudTrail bucket name | From SSM parameter |
-| `path` | `AWSLogs/` | Captures all 60 accounts |
+| `bucket` | `logs.infillion.com` | CloudTrail bucket |
+| `path` | `AWSLogs/o-z70v8p3t14/` | Org-level prefix — captures all 60 accounts |
 | `type` | `cloudtrail` | Tells Wazuh to parse CloudTrail JSON format |
-| `only_logs_after` | Deploy date | Avoids re-processing 1 year of history on first run |
+| `only_logs_after` | Deploy date | Avoids re-processing history on first run |
 | `interval` | `5m` | Balance between alert latency and S3 API cost |
 | `run_on_start` | `yes` | Process immediately on Wazuh start |
+
+**Why `AWSLogs/o-z70v8p3t14/` and not `AWSLogs/`:**
+The org-level trail stores logs under the Organization ID prefix, not
+directly under account IDs. Using `AWSLogs/` would cause Wazuh to also
+try to process the management account's direct logs under
+`AWSLogs/757548139022/` which uses a different (non-org) path structure.
+The org prefix scopes ingestion cleanly to all member accounts.
 
 ---
 

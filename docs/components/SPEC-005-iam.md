@@ -34,20 +34,26 @@ CloudTrail S3 bucket is in the same management account as the EC2.
       "Sid": "ListBucket",
       "Effect": "Allow",
       "Action": ["s3:ListBucket"],
-      "Resource": "arn:aws:s3:::CLOUDTRAIL_BUCKET_NAME"
+      "Resource": "arn:aws:s3:::logs.infillion.com",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "AWSLogs/o-z70v8p3t14/*"
+        }
+      }
     },
     {
       "Sid": "GetObjects",
       "Effect": "Allow",
       "Action": ["s3:GetObject"],
-      "Resource": "arn:aws:s3:::CLOUDTRAIL_BUCKET_NAME/AWSLogs/*"
+      "Resource": "arn:aws:s3:::logs.infillion.com/AWSLogs/o-z70v8p3t14/*"
     }
   ]
 }
 ```
 
-Note: `CLOUDTRAIL_BUCKET_NAME` is filled with the actual bucket name
-at deploy time via CloudFormation parameter.
+The `s3:prefix` condition on ListBucket scopes the listing to the org
+prefix only, preventing Wazuh from inadvertently listing the management
+account's direct log prefix (`AWSLogs/757548139022/`).
 
 ### 2.2 Policy: SSM Parameter Read
 
@@ -61,7 +67,7 @@ at deploy time via CloudFormation parameter.
       "Sid": "ReadSeleneParameters",
       "Effect": "Allow",
       "Action": ["ssm:GetParameter", "ssm:GetParameters"],
-      "Resource": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/selene/*"
+      "Resource": "arn:aws:ssm:us-east-1:757548139022:parameter/selene/*"
     }
   ]
 }
@@ -79,7 +85,7 @@ at deploy time via CloudFormation parameter.
       "Sid": "OpenSearchHttpAccess",
       "Effect": "Allow",
       "Action": ["es:ESHttpGet", "es:ESHttpPost", "es:ESHttpPut", "es:ESHttpHead"],
-      "Resource": "arn:aws:es:REGION:ACCOUNT_ID:domain/selene-findings/*"
+      "Resource": "arn:aws:es:us-east-1:757548139022:domain/selene-findings/*"
     }
   ]
 }
@@ -94,9 +100,9 @@ access in a future phase without requiring code changes.
 
 ## 3. CloudTrail S3 Bucket Policy Amendment
 
-The existing CloudTrail S3 bucket policy must be amended to allow
-the Wazuh instance role to read log objects. This is the only change
-made to existing infrastructure.
+The `logs.infillion.com` bucket policy must be amended to allow the
+Wazuh instance role to read log objects. This is the only change made
+to existing infrastructure.
 
 Add this statement to the existing bucket policy:
 
@@ -105,15 +111,18 @@ Add this statement to the existing bucket policy:
   "Sid": "AllowSeleneWazuhRead",
   "Effect": "Allow",
   "Principal": {
-    "AWS": "arn:aws:iam::ACCOUNT_ID:role/selene-wazuh-instance-role"
+    "AWS": "arn:aws:iam::757548139022:role/selene-wazuh-instance-role"
   },
   "Action": ["s3:GetObject", "s3:ListBucket"],
   "Resource": [
-    "arn:aws:s3:::CLOUDTRAIL_BUCKET_NAME",
-    "arn:aws:s3:::CLOUDTRAIL_BUCKET_NAME/AWSLogs/*"
+    "arn:aws:s3:::logs.infillion.com",
+    "arn:aws:s3:::logs.infillion.com/AWSLogs/o-z70v8p3t14/*"
   ]
 }
 ```
+
+The resource scope is limited to the org prefix `o-z70v8p3t14` only.
+Selene has no access to any other path in this bucket.
 
 ---
 

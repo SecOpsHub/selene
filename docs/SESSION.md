@@ -1,62 +1,70 @@
 # Session Brief
-
-> Update this file at the end of every working session.
-> This is your bookmark — not a history log.
-> Keep it under 300 words.
+# Updated at end of every working session. Overwrite, do not append.
 
 ---
 
 ## Last updated
-2025 — initial project setup
+2025 — discovery complete, all specs updated with real values
 
 ## Current SDD phase
-Phase 2 complete — all component specs drafted (SPEC-001 through SPEC-007)
-Phase 3 (Interface Contracts) not yet started
+Phase 2 complete — all component specs have real environment values
+Phase 3 (Interface Contracts) is next
 
 ## What is done
 - [x] Repository structure created
 - [x] README.md written
-- [x] SPEC-001 through SPEC-007 drafted
-- [x] ADR-001, ADR-002, ADR-003 written
-- [x] Discovery script written (not yet run)
-- [x] SESSION.md and DECISIONS.md templates created
+- [x] SPEC-001 through SPEC-007 drafted and updated with real values
+- [x] ADR-001 through ADR-005 written
+- [x] Runbooks: golden-ami-bake, disaster-recovery
+- [x] PRODUCTION-CHECKLIST.md with Gate 0-5 structure
+- [x] POC-PRESENTATION.md — demo script and management talking points
+- [x] Discovery run — RESULTS.md populated with real values
+- [x] SPEC-002 subnet table filled in with real subnet IDs
+- [x] SPEC-005 IAM policies have real account ID (757548139022) and bucket (logs.infillion.com)
+- [x] SPEC-007 updated with real trail name and bucket, coverage flag noted
 
 ## What is NOT done yet
-- [ ] Discovery script run against real AWS environment
-- [ ] docs/discovery/RESULTS.md populated with real subnet IDs, bucket name
-- [ ] Phase 3: Interface Contracts (stack outputs/inputs, SSM parameter schema)
+- [ ] Phase 3: Interface Contracts (CloudFormation stack outputs/imports)
 - [ ] Phase 4: Implementation Plan (ordered build sequence)
 - [ ] Phase 5: Verification Criteria
-- [ ] Any CloudFormation templates
-- [ ] Any Ansible playbooks
+- [ ] Any CloudFormation templates (infra/*.yml)
+- [ ] Full Ansible role implementations
+- [ ] Golden AMI bake
+- [ ] Verify public subnet route tables have IGW route (before ALB deploy)
+- [ ] Confirm all 60 accounts present in logs.infillion.com (after deploy)
 
 ## Blocked on
-- Real subnet IDs from prod VPC (needed for SPEC-002 to be complete)
-- Real CloudTrail bucket name (needed for SPEC-005 and SPEC-007)
-- Run `docs/discovery/discover.sh` to get these values
+Nothing — ready to begin Phase 3
 
 ## Next task (start here next session)
-1. Run `docs/discovery/discover.sh` with management account credentials
-2. Fill in `docs/discovery/RESULTS.md` with real values
-3. Update SPEC-002 subnet table with real subnet IDs
-4. Begin Phase 3: Interface Contracts
+Begin Phase 3: Interface Contracts
+- Define CloudFormation stack outputs and cross-stack imports
+- Define SSM parameter schema (already partially documented)
+- This unlocks Phase 4: Implementation Plan (ordered build sequence)
 
-## Key decisions made (this session)
+## Key environment values (from discovery)
+- Account: 757548139022
+- VPC: vpc-06cdf666adc9f698d (production-vpc, 10.1.0.0/16)
+- ALB subnets: subnet-06e367114ba47947a (1a), subnet-0a2291ca1fe4900c0 (1b)
+- EC2/OpenSearch subnet: subnet-0934cf17ca2678038 (private, 1a)
+- CloudTrail bucket: logs.infillion.com (trail: full-org-events, org-level path)
+- CloudTrail S3 prefix: AWSLogs/o-z70v8p3t14/ (org ID in path — NOT AWSLogs/{account-id})
+- Organization ID: o-z70v8p3t14
+- Region: us-east-1
+
+## Key decisions made
 - Project name: Selene
-- Findings backend: Amazon OpenSearch Service (not S3)
+- Findings backend: Amazon OpenSearch Service
 - EC2 stateless via Git + Ansible
-- S3 polling for POC (not SQS)
-- Rules in GitHub under SecOpsHub/selene
+- S3 polling (not SQS) for POC
+- Rules in GitHub (SecOpsHub/selene)
 - t3.medium.search for OpenSearch, t3.xlarge for EC2
-- Personal IP /32 only for ALB and SSH during POC
-- **POC will be presented to higher management before production transition**
-- **Management approval is Gate 0 on the production checklist — explicit hard gate**
-- POC has two jobs: technical validation AND management demo
-- docs/POC-PRESENTATION.md created — demo script and talking points
-- docs/PRODUCTION-CHECKLIST.md restructured into Gate 0-5 with approval as Gate 0
+- Personal IP /32 for POC access
+- POC to be presented to management — approval is Gate 0 for production
+- No QA environment (ADR-004) — read-only tool, bounded blast radius
+- Two CloudTrail trails exist; use only full-org-events / logs.infillion.com
 
-## Open questions
-- Does the prod VPC have a NAT gateway on private subnets?
-  (EC2 needs outbound 443 to GitHub and AWS APIs)
-- Should the selene repo be public or private?
-  (Affects whether a deploy key is needed for UserData git clone)
+## Open flags
+- Public subnets show MapPublicIpOnLaunch: false — verify IGW route tables before ALB deploy
+- Discovery only showed management account (757548139022) in S3 top-level scan;
+  full 60-account coverage to be verified post-deployment

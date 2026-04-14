@@ -60,14 +60,18 @@ and traffic routing. No new VPC is created.
 
 ## 3. Subnet Assignment
 
-Populate from `docs/discovery/RESULTS.md` after running discover.sh:
+| Component | Subnet Type | Subnet ID | AZ | CIDR |
+|---|---|---|---|---|
+| ALB (AZ 1) | Public | `subnet-06e367114ba47947a` | us-east-1a | 10.1.0.0/20 |
+| ALB (AZ 2) | Public | `subnet-0a2291ca1fe4900c0` | us-east-1b | 10.1.16.0/20 |
+| Wazuh EC2 | Private | `subnet-0934cf17ca2678038` | us-east-1a | 10.1.128.0/20 |
+| OpenSearch | Private | `subnet-0934cf17ca2678038` | us-east-1a | 10.1.128.0/20 |
 
-| Component | Subnet Type | Subnet ID | AZ |
-|---|---|---|---|
-| ALB | Public | TBD | TBD |
-| ALB | Public | TBD | TBD (different AZ) |
-| Wazuh EC2 | Private | TBD | TBD |
-| OpenSearch | Private | TBD | TBD (same as EC2) |
+**Note:** Public subnets have `MapPublicIpOnLaunch: false` by VPC config.
+This is fine — the ALB does not need instances to auto-assign IPs.
+The subnets route to the Internet Gateway by their route table, which is
+what makes them public. Verify route tables include `0.0.0.0/0 → igw-*`
+before deploying the ALB stack.
 
 ---
 

@@ -98,8 +98,9 @@ infrastructure. See ADR-004 for the full rationale.
          │ S3 GetObject + ListBucket (IAM role, same account)
          ▼
 ┌──────────────────────────────────────────────────┐
-│  Existing CloudTrail S3 Bucket                    │
-│  All 60 member accounts → AWSLogs/{acct}/...      │
+│  CloudTrail S3: logs.infillion.com                │
+│  Trail: full-org-events (multi-region)            │
+│  All ~60 accounts → AWSLogs/{account-id}/...      │
 │  1-year S3 lifecycle policy (raw logs)            │
 └──────────────────────────────────────────────────┘
 
@@ -173,10 +174,22 @@ EC2 cost to ~$75/mo, bringing total to ~$170/mo if committed.
 
 ---
 
-## 10. Open Questions
+## 10. Environment Values (Discovery Complete)
 
-All resolved. See `docs/discovery/RESULTS.md` for environment-specific values
-(subnet IDs, CloudTrail bucket name, account ID) once discovery is run.
+All environment-specific values resolved. See `docs/discovery/RESULTS.md`.
+
+| Value | Resolved |
+|---|---|
+| VPC ID | `vpc-06cdf666adc9f698d` (production-vpc, 10.1.0.0/16) |
+| ALB subnets | `subnet-06e367114ba47947a` (us-east-1a), `subnet-0a2291ca1fe4900c0` (us-east-1b) |
+| EC2 / OpenSearch subnet | `subnet-0934cf17ca2678038` (us-east-1a, private) |
+| CloudTrail trail | `full-org-events` (multi-region, org-level) |
+| CloudTrail bucket | `logs.infillion.com` |
+| CloudTrail S3 prefix | `AWSLogs/o-z70v8p3t14/` (org-level path — includes org ID) |
+| Organization ID | `o-z70v8p3t14` |
+| Management account ID | `757548139022` |
+| Region | `us-east-1` |
+| Active regions in logs | 16 (all major AWS regions confirmed) |
 
 ---
 

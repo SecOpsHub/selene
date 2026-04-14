@@ -89,6 +89,10 @@ CLOUDTRAIL_BUCKET=$(aws ssm get-parameter \
   --name /selene/cloudtrail_bucket \
   --query Parameter.Value --output text)
 
+CLOUDTRAIL_PREFIX=$(aws ssm get-parameter \
+  --name /selene/cloudtrail_prefix \
+  --query Parameter.Value --output text)
+
 # Clone the selene repo (latest main)
 cd /opt
 git clone https://github.com/SecOpsHub/selene
@@ -98,7 +102,8 @@ cd selene
 ansible-playbook ansible/site.yml \
   --inventory ansible/inventory/localhost \
   --extra-vars "opensearch_endpoint=${OPENSEARCH_ENDPOINT} \
-                cloudtrail_bucket=${CLOUDTRAIL_BUCKET}"
+                cloudtrail_bucket=${CLOUDTRAIL_BUCKET} \
+                cloudtrail_prefix=${CLOUDTRAIL_PREFIX}"
 
 echo "Selene init complete: $(date)"
 ```

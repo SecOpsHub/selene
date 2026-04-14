@@ -5,6 +5,57 @@ Format: [Version] — Date — Description
 
 ---
 
+## [0.1.4] — 2025-04-14 — S3 Path Structure Corrected
+
+### Critical fix
+The CloudTrail S3 path uses an org-level structure with the Organization
+ID as an intermediate prefix. All specs updated accordingly.
+
+**Incorrect assumption:** `s3://logs.infillion.com/AWSLogs/{account-id}/...`
+**Correct path:** `s3://logs.infillion.com/AWSLogs/o-z70v8p3t14/{account-id}/...`
+
+### Updated
+- `RESULTS.md` — org ID documented, full 60-account coverage confirmed,
+  all 16 active regions confirmed
+- `SPEC-007` — wodle `path` parameter corrected to `AWSLogs/o-z70v8p3t14/`;
+  org-level path structure fully documented
+- `SPEC-005` — IAM ListBucket condition scoped to org prefix;
+  GetObject resource ARN scoped to `AWSLogs/o-z70v8p3t14/*`;
+  bucket policy amendment updated with org-scoped resource
+- `SPEC-004` — SSM parameters table now includes all three parameters
+  including `/selene/cloudtrail_prefix`
+- `SPEC-003` — UserData reads `/selene/cloudtrail_prefix` from SSM
+  and passes it to Ansible as `cloudtrail_prefix` variable
+- `SPEC-001` — Environment values table includes org ID and correct prefix
+
+### Also resolved
+- S3 coverage flag from v0.1.3: all ~60 accounts confirmed present
+  under `AWSLogs/o-z70v8p3t14/`
+
+---
+
+## [0.1.3] — 2025 — Discovery Complete
+
+### Updated (real environment values applied)
+- `docs/discovery/RESULTS.md` — populated with all real values from discovery run
+- `SPEC-001` — Section 10 replaced with resolved environment values table; architecture
+  diagram updated with real bucket name
+- `SPEC-002` — Subnet table filled in with real subnet IDs and CIDRs
+- `SPEC-005` — All IAM policy ARNs updated with real account ID (757548139022)
+  and real bucket name (logs.infillion.com)
+- `SPEC-007` — Updated with real trail name (full-org-events), real bucket,
+  and flag for coverage verification post-deployment
+- `docs/SESSION.md` — Updated to reflect current state
+
+### Flags noted
+- Two CloudTrail trails exist; Selene uses only `full-org-events` / `logs.infillion.com`
+- Discovery S3 scan showed only management account prefix; full 60-account coverage
+  to be verified after deployment
+- Public subnets have MapPublicIpOnLaunch: false — route tables to be verified
+  before ALB deployment
+
+---
+
 ## [0.1.2] — 2025 — Management Presentation Layer
 
 ### Added

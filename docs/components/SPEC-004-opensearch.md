@@ -83,17 +83,21 @@ The OpenSearch domain has no public endpoint. It is only reachable:
 
 ---
 
-## 6. SSM Parameter
+## 6. SSM Parameters
 
-The OpenSearch VPC endpoint is stored in SSM Parameter Store so the
-EC2 UserData can retrieve it without hardcoding:
+All Selene runtime configuration is stored in SSM Parameter Store.
+EC2 UserData reads these at boot — nothing is hardcoded in the AMI
+or Launch Template.
 
-| Parameter | Description |
-|---|---|
-| `/selene/opensearch_endpoint` | VPC endpoint hostname for the domain |
+| Parameter | Value | Set When |
+|---|---|---|
+| `/selene/opensearch_endpoint` | OpenSearch VPC endpoint hostname | After OpenSearch stack deploys |
+| `/selene/cloudtrail_bucket` | `logs.infillion.com` | Before first EC2 launch |
+| `/selene/cloudtrail_prefix` | `AWSLogs/o-z70v8p3t14/` | Before first EC2 launch |
 
-This value is set once after the OpenSearch domain is created and does
-not change unless the domain is recreated.
+The org-level prefix (`o-z70v8p3t14`) is a separate parameter rather
+than hardcoded in the AMI so it can be updated without a Golden AMI
+rebake if the org structure ever changes.
 
 ---
 
