@@ -1,0 +1,22 @@
+{# Selene — ossec.conf Jinja2 Template
+   Rendered by Ansible role: wazuh_config
+   Spec: docs/components/SPEC-006-ansible.md, SPEC-007-cloudtrail.md
+
+   Variables required:
+     opensearch_endpoint  — OpenSearch VPC hostname
+     cloudtrail_bucket    — CloudTrail S3 bucket name
+
+   Status: PLACEHOLDER — full template written during Phase 4 implementation
+   Key sections to include:
+     - global settings
+     - aws-s3 wodle (cloudtrail ingestion, SPEC-007)
+     - opensearch output (findings destination, SPEC-004)
+     - alerts and logging config
+#}
+
+<!-- ossec.conf placeholder — to be completed in Phase 4 -->
+<ossec_config>
+  <!-- wazuh_config role renders this file -->
+  <!-- opensearch_endpoint: {{ opensearch_endpoint }} -->
+  <!-- cloudtrail_bucket: {{ cloudtrail_bucket }} -->
+</ossec_config>

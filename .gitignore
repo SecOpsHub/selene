@@ -1,0 +1,51 @@
+# Selene .gitignore
+
+# Discovery results — may contain account IDs, bucket names, subnet IDs
+# Review before committing. RESULTS.md is safe (template only).
+docs/discovery/results/
+
+# Ansible vault files (if used later for secrets)
+*.vault
+*.vault.yml
+ansible/vault_pass.txt
+
+# Terraform (not used, but just in case)
+*.tfstate
+*.tfstate.backup
+.terraform/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# AWS CLI credentials (never commit these)
+.aws/
+
+# SSH keys (never commit these)
+*.pem
+*.key
+id_rsa
+id_ed25519
+
+# Temporary files
+*.tmp
+*.bak
+*.log
+
+# CloudFormation packaged templates (generated artifacts)
+infra/packaged-*.yml

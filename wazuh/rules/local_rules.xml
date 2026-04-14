@@ -1,0 +1,28 @@
+<!-- Selene Custom Detection Rules
+     Managed by: Ansible role wazuh_rules
+     Deployed to: /var/ossec/etc/rules/local_rules.xml
+     Spec: docs/components/SPEC-006-ansible.md, SPEC-007-cloudtrail.md
+
+     IMPORTANT: Never edit rules directly on the server.
+     All changes must go through Git → Ansible playbook.
+
+     Rule ID range reserved for Selene: 100000-100999
+     (IDs below 100000 are used by Wazuh built-in rules)
+
+     Status: PLACEHOLDER — custom rules added during POC rule-tuning phase
+-->
+
+<group name="selene,cloudtrail,">
+
+  <!-- Example rule structure (not active — replace with real rules) -->
+  <!--
+  <rule id="100001" level="10">
+    <if_sid>80202</if_sid>
+    <field name="aws.eventName">ConsoleLogin</field>
+    <field name="aws.responseElements.ConsoleLogin">Failure</field>
+    <description>AWS Console login failure from $(aws.sourceIPAddress)</description>
+    <group>authentication_failed,cloudtrail,</group>
+  </rule>
+  -->
+
+</group>

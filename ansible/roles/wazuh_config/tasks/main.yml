@@ -1,0 +1,10 @@
+---
+# Role: wazuh_config
+# Purpose: Render ossec.conf from Jinja2 template and deploy to /var/ossec/etc/
+# Spec: docs/components/SPEC-006-ansible.md
+#
+# Status: PLACEHOLDER — implementation pending Phase 4
+
+# Tasks will:
+# 1. Template ossec.conf.j2 → /var/ossec/etc/ossec.conf
+# 2. Notify wazuh_services handler if file changed

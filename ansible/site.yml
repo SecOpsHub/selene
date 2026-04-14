@@ -1,0 +1,23 @@
+---
+# Selene — Master Ansible Playbook
+# Runs on the EC2 instance itself (localhost execution)
+# Called by UserData on every instance launch
+#
+# Variables passed in via --extra-vars from UserData:
+#   opensearch_endpoint  — OpenSearch VPC hostname (from SSM)
+#   cloudtrail_bucket    — CloudTrail S3 bucket name (from SSM)
+#
+# Status: PLACEHOLDER — implementation pending Phase 4 (Implementation Plan)
+# Spec: docs/components/SPEC-006-ansible.md
+
+- hosts: localhost
+  connection: local
+  become: yes
+  vars:
+    opensearch_endpoint: "{{ opensearch_endpoint }}"
+    cloudtrail_bucket: "{{ cloudtrail_bucket }}"
+  roles:
+    - wazuh_config
+    - wazuh_rules
+    - wazuh_indexer
+    - wazuh_services

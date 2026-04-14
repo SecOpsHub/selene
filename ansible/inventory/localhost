@@ -1,0 +1,6 @@
+# Selene Ansible Inventory
+# Single host: the EC2 instance itself
+# Ansible runs locally — no SSH to a remote host
+
+[all]
+localhost ansible_connection=local

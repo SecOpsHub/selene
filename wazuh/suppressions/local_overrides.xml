@@ -1,0 +1,35 @@
+<!-- Selene Alert Suppressions (local_overrides.xml)
+     Managed by: Ansible role wazuh_rules
+     Deployed to: /var/ossec/etc/local_overrides.xml
+     Spec: docs/components/SPEC-006-ansible.md
+
+     Use this file to suppress known-noisy alerts that are not
+     actionable — e.g. scheduled automation, known service accounts,
+     StackSets activity, expected IAM Identity Center events.
+
+     IMPORTANT: Never edit suppressions directly on the server.
+     All changes must go through Git → Ansible playbook.
+     Document WHY each suppression exists in a comment.
+
+     Status: PLACEHOLDER — suppressions added during POC rule-tuning phase
+-->
+
+<ossec_config>
+
+  <!-- Example suppression structure (not active — replace with real suppressions) -->
+  <!--
+  <rule_config>
+    <rule id="80202" level="0">
+      <match>arn:aws:sts::ACCOUNT_ID:assumed-role/AWSReservedSSO</match>
+    </rule>
+  </rule_config>
+  -->
+
+  <!-- Planned suppressions to add during tuning:
+       - IAM Identity Center automated role assumptions
+       - StackSets cross-account activity
+       - Known CI/CD service accounts (code_deploy GitHub Actions user)
+       - BlueJay EC2 instance role activity
+  -->
+
+</ossec_config>
