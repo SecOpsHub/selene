@@ -49,6 +49,11 @@ Phase 3 (Interface Contracts) not yet started
 - Rules in GitHub under SecOpsHub/selene
 - t3.medium.search for OpenSearch, t3.xlarge for EC2
 - Personal IP /32 only for ALB and SSH during POC
+- **POC will be presented to higher management before production transition**
+- **Management approval is Gate 0 on the production checklist — explicit hard gate**
+- POC has two jobs: technical validation AND management demo
+- docs/POC-PRESENTATION.md created — demo script and talking points
+- docs/PRODUCTION-CHECKLIST.md restructured into Gate 0-5 with approval as Gate 0
 
 ## Open questions
 - Does the prod VPC have a NAT gateway on private subnets?

@@ -9,7 +9,20 @@ warrant a full ADR but are worth recording.
 
 ## 2025 — Project Kickoff
 
-**Project name: Selene**
+**POC designed for production promotion**
+The POC is not throwaway. The core architecture (stateless EC2, external
+OpenSearch, Git-controlled config, CloudFormation) is production-grade
+from day one. What changes at promotion time is the operational layer:
+TLS cert, DNS, Okta auth, port 22 removed. See ADR-005 and
+docs/PRODUCTION-CHECKLIST.md.
+
+**No QA environment**
+Selene is read-only — it cannot write to any monitored infrastructure.
+Blast radius of any failure is bounded to its own components (alerts,
+dashboard). Git + Ansible idempotency + CloudFormation rollback are the
+change safety mechanisms. See ADR-004.
+
+
 Chosen for the moon goddess concept — illuminating what happens in
 the cloud. Short, pronounceable, no collision with existing AWS or
 security product names.

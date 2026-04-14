@@ -170,6 +170,8 @@ aws cloudformation deploy --template-file infra/ec2-asg.yml \
 | [ADR-001](docs/decisions/ADR-001-opensearch-vs-s3.md) | OpenSearch Service vs S3 for findings storage |
 | [ADR-002](docs/decisions/ADR-002-stateless-ec2.md) | Stateless EC2 with Git as source of truth |
 | [ADR-003](docs/decisions/ADR-003-polling-vs-sqs.md) | S3 polling vs SQS-based ingestion |
+| [ADR-004](docs/decisions/ADR-004-no-qa-environment.md) | No QA environment — read-only safety rationale |
+| [ADR-005](docs/decisions/ADR-005-poc-to-production.md) | POC-to-production promotion strategy |
 
 ---
 
@@ -193,11 +195,17 @@ AWS maintenance windows. Resolution (future): 2-node multi-AZ deployment.
 
 ## Roadmap
 
-| Phase | Description | Status |
-|---|---|---|
-| POC | CloudTrail ingestion, Wazuh dashboard, OpenSearch | 🔄 In progress |
-| Phase 2 | Custom DNS + ACM certificate + Route 53 | ⏳ Planned |
-| Phase 3 | Okta SAML dashboard integration | ⏳ Planned |
-| Phase 4 | SSM-only access, remove port 22 | ⏳ Planned |
-| Phase 5 | SQS-based log ingestion (replace polling) | ⏳ Planned |
-| Phase 6 | EFS for Wazuh state (eliminate SL-001) | ⏳ Planned |
+Selene is built POC-first with the intent to promote to production.
+The architecture is production-grade from day one. Each phase below
+removes an operational shortcut. See `docs/PRODUCTION-CHECKLIST.md`
+for the full promotion gate.
+
+| Phase | Description | Production Gate? | Status |
+|---|---|---|---|
+| POC | CloudTrail ingestion, Wazuh dashboard, OpenSearch, ASG recovery | No | 🔄 In progress |
+| Phase 2 | DNS (selene.infillion.com) + ACM cert + 2-node OpenSearch | Yes — TLS + HA | ⏳ Planned |
+| Phase 3 | Okta SAML dashboard auth + team VPN CIDR access | Yes — auth | ⏳ Planned |
+| Phase 4 | SSM Session Manager only — remove port 22 | Yes — access hardening | ⏳ Planned |
+| **Production** | All checklist items complete | **Promotion declared** | ⏳ |
+| Phase 5 | SQS-based log ingestion (replace polling, lower latency) | No — optimization | ⏳ Planned |
+| Phase 6 | EFS for Wazuh state (eliminate duplicate alerts on restart) | No — optimization | ⏳ Planned |

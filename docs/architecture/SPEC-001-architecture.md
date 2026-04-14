@@ -35,16 +35,25 @@ detection rules.
 
 ---
 
-## 3. Non-Goals (this phase)
+## 3. Out of Scope (this phase only)
 
-| ID | Non-Goal |
-|---|---|
-| NG1 | SSM-only access — port 22 is allowed initially; SSM is a future phase |
-| NG2 | Custom DNS name — ALB-generated DNS used for POC |
-| NG3 | Okta SAML integration — post-POC |
-| NG4 | Multi-node Wazuh cluster — single all-in-one instance only |
-| NG5 | Ingestion sources beyond CloudTrail S3 — agents, VPC flow logs etc. are future phases |
-| NG6 | Multi-AZ OpenSearch — single node acceptable for POC |
+These are operational requirements for production that are intentionally
+deferred from the POC phase. They are not optional — they are required
+before Selene can be considered production-ready. See ADR-005 and
+`docs/PRODUCTION-CHECKLIST.md` for the full promotion gate criteria.
+
+| ID | Deferred Item | Planned Phase |
+|---|---|---|
+| NG1 | SSM-only access — port 22 allowed during active development | Phase 4 |
+| NG2 | Custom DNS name (selene.infillion.com) + ACM TLS cert | Phase 2 |
+| NG3 | Okta SAML integration for dashboard auth | Phase 3 |
+| NG4 | Multi-node Wazuh cluster — single all-in-one sufficient for current volume | Revisit at scale |
+| NG5 | Ingestion beyond CloudTrail S3 — agents, VPC flow logs, GuardDuty | Future phases |
+| NG6 | Multi-AZ OpenSearch — single node acceptable for POC | Phase 2 |
+
+**Note on environment strategy:** There is no QA or staging environment.
+Selene is a read-only observation tool with no write access to monitored
+infrastructure. See ADR-004 for the full rationale.
 
 ---
 
@@ -188,7 +197,34 @@ The POC is complete when all of the following are true:
 
 ---
 
-## 12. Known Limitations
+## 12. POC-to-Production Path
+
+This POC is designed with the expectation of promotion to production.
+The architecture is production-grade from day one. What changes at
+promotion is the operational layer, not the design.
+
+**Architecture decisions that are already production-grade:**
+- Stateless EC2 with Git as source of truth (ADR-002)
+- Durable findings in OpenSearch, separate from EC2 (ADR-001)
+- CloudFormation-managed infrastructure
+- IAM least privilege with no wildcard actions (SPEC-005)
+- IMDSv2 enforced
+- No public OpenSearch endpoint
+
+**Operational shortcuts to resolve before promotion:**
+
+| Shortcut | Resolution | Phase |
+|---|---|---|
+| Self-signed TLS cert (SL-002) | ACM cert + Route 53 DNS | Phase 2 |
+| Personal IP /32 only | Team VPN CIDR + Okta SSO | Phase 2/3 |
+| Port 22 open | SSM Session Manager | Phase 4 |
+| Single OpenSearch node (SL-003) | 2-node multi-AZ | Phase 2 |
+
+See `docs/PRODUCTION-CHECKLIST.md` for the complete gate criteria.
+
+---
+
+## 13. Known Limitations
 
 **SL-001 — Duplicate alerts on EC2 replacement**
 Wazuh's S3 integration tracks processed files in a local SQLite database
