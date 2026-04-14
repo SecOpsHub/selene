@@ -45,7 +45,7 @@ before Selene can be considered production-ready. See ADR-005 and
 | ID | Deferred Item | Planned Phase |
 |---|---|---|
 | NG1 | SSM-only access — port 22 allowed during active development | Phase 4 |
-| NG2 | Custom DNS name (selene.infillion.com) + ACM TLS cert | Phase 2 |
+| NG2 | Custom DNS name (`selene.infillion.com`) + ACM TLS cert | Phase 2 |
 | NG3 | Okta SAML integration for dashboard auth | Phase 3 |
 | NG4 | Multi-node Wazuh cluster — single all-in-one sufficient for current volume | Revisit at scale |
 | NG5 | Ingestion beyond CloudTrail S3 — agents, VPC flow logs, GuardDuty | Future phases |
@@ -256,8 +256,9 @@ maintenance events for that AZ. Resolution: 2-node multi-AZ in Phase 2.
 
 ---
 
-## 13. Related Specs
+## 14. Related Specs
 
+- [SPEC-008 Interface Contracts](SPEC-008-interface-contracts.md)
 - [SPEC-002 Networking](../components/SPEC-002-networking.md)
 - [SPEC-003 EC2 / ASG / Golden AMI](../components/SPEC-003-ec2-asg.md)
 - [SPEC-004 OpenSearch Service](../components/SPEC-004-opensearch.md)
