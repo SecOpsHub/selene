@@ -154,6 +154,8 @@ aws cloudformation deploy --template-file infra/ec2-asg.yml \
 | Spec | Description |
 |---|---|
 | [SPEC-001](docs/architecture/SPEC-001-architecture.md) | System architecture |
+| [SPEC-008](docs/architecture/SPEC-008-interface-contracts.md) | Interface contracts — stack outputs, SSM schema, Ansible variables |
+| [SPEC-009](docs/architecture/SPEC-009-implementation-plan.md) | Implementation plan — ordered build sequence and task backlog |
 | [SPEC-002](docs/components/SPEC-002-networking.md) | Networking, ALB, security groups |
 | [SPEC-003](docs/components/SPEC-003-ec2-asg.md) | EC2, ASG, Launch Template, Golden AMI |
 | [SPEC-004](docs/components/SPEC-004-opensearch.md) | Amazon OpenSearch Service domain |
