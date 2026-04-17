@@ -1,0 +1,154 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Selene SIEM - OpenSearch Stack
+  Creates the OpenSearch Service domain for durable findings storage.
+  Deploy after selene-networking. Takes 15-20 minutes to provision.
+  After deploy: retrieve endpoint and store in SSM (see T06 in SPEC-009).
+  Spec: docs/components/SPEC-004-opensearch.md
+  Contracts: docs/architecture/SPEC-008-interface-contracts.md
+
+# ─────────────────────────────────────────────────────────────
+# Parameters
+# ─────────────────────────────────────────────────────────────
+Parameters:
+
+  OpenSearchSubnet:
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-0934cf17ca2678038
+    Description: Private subnet us-east-1a for OpenSearch domain
+
+  EbsVolumeSize:
+    Type: Number
+    Default: 100
+    MinValue: 20
+    MaxValue: 512
+    Description: EBS volume size in GB for OpenSearch storage
+
+# ─────────────────────────────────────────────────────────────
+# Resources
+# ─────────────────────────────────────────────────────────────
+Resources:
+
+  # ── OpenSearch Domain ──────────────────────────────────────
+  #
+  # Domain name is a fixed contract: selene-findings
+  # Changing this name requires updating the IAM policy in selene-iam
+  # which constructs the domain ARN from this name.
+  # See: SPEC-008 Section 2
+
+  OpenSearchDomain:
+    Type: AWS::OpenSearchService::Domain
+    Properties:
+      DomainName: selene-findings
+      EngineVersion: OpenSearch_2.11
+
+      # ── Cluster ─────────────────────────────────────────
+      ClusterConfig:
+        InstanceType: t3.medium.search
+        InstanceCount: 1
+        DedicatedMasterEnabled: false
+        ZoneAwarenessEnabled: false
+
+      # ── Storage ─────────────────────────────────────────
+      EBSOptions:
+        EBSEnabled: true
+        VolumeType: gp3
+        VolumeSize: !Ref EbsVolumeSize
+
+      # ── VPC Placement ────────────────────────────────────
+      # VPC-only — no public endpoint
+      # Subnet and SG imported from selene-networking stack
+      VPCOptions:
+        SubnetIds:
+          - !Ref OpenSearchSubnet
+        SecurityGroupIds:
+          - !ImportValue selene-OpensearchSecurityGroupId
+
+      # ── Encryption ──────────────────────────────────────
+      EncryptionAtRestOptions:
+        Enabled: true
+        # Uses AWS managed key (no customer KMS key needed for POC)
+
+      NodeToNodeEncryptionOptions:
+        Enabled: true
+
+      DomainEndpointOptions:
+        EnforceHTTPS: true
+        TLSSecurityPolicy: Policy-Min-TLS-1-2-2019-07
+
+      # ── Fine-Grained Access Control ──────────────────────
+      # InternalUserDatabaseEnabled: true allows filebeat and the
+      # dashboard to authenticate with username/password.
+      # The EC2 instance role retains IAM-based access via the
+      # access policy below.
+      # Master password is stored in SSM SecureString and referenced
+      # via CloudFormation dynamic reference — never appears in plaintext.
+      AdvancedSecurityOptions:
+        Enabled: true
+        InternalUserDatabaseEnabled: true
+        MasterUserOptions:
+          MasterUserName: admin
+          MasterUserPassword: '{{resolve:ssm-secure:/selene/opensearch_admin_password}}'
+
+      # ── Access Policy ────────────────────────────────────
+      # Allows the EC2 instance role to perform all OpenSearch
+      # HTTP operations on this domain.
+      # The security group provides network-level access control —
+      # only EC2 in selene-ec2-sg can reach port 443 on this domain.
+      AccessPolicies:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !ImportValue selene-InstanceRoleArn
+            Action: es:*
+            Resource: !Sub arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/selene-findings/*
+
+      # ── Snapshots ────────────────────────────────────────
+      SnapshotOptions:
+        AutomatedSnapshotStartHour: 3
+
+      Tags:
+        - Key: Project
+          Value: selene
+        - Key: ManagedBy
+          Value: cloudformation
+        - Key: Stack
+          Value: selene-opensearch
+
+# ─────────────────────────────────────────────────────────────
+# Outputs
+# ─────────────────────────────────────────────────────────────
+# After this stack deploys, run T06 from SPEC-009:
+#
+#   ENDPOINT=$(aws cloudformation describe-stacks \
+#     --stack-name selene-opensearch \
+#     --query 'Stacks[0].Outputs[?OutputKey==`OpenSearchEndpoint`].OutputValue' \
+#     --output text)
+#
+#   aws ssm put-parameter \
+#     --name /selene/opensearch_endpoint \
+#     --value "$ENDPOINT" \
+#     --type String
+#
+Outputs:
+
+  OpenSearchEndpoint:
+    Description: >
+      VPC endpoint hostname for the OpenSearch domain.
+      Store this in SSM after deploy (T06 in SPEC-009).
+    Value: !GetAtt OpenSearchDomain.DomainEndpoint
+    Export:
+      Name: selene-OpenSearchEndpoint
+
+  OpenSearchArn:
+    Description: OpenSearch domain ARN
+    Value: !GetAtt OpenSearchDomain.Arn
+    Export:
+      Name: selene-OpenSearchArn
+
+  OpenSearchDomainName:
+    Description: OpenSearch domain name (fixed contract - selene-findings)
+    Value: !Ref OpenSearchDomain
+    Export:
+      Name: selene-OpenSearchDomainName

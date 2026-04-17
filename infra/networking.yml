@@ -1,0 +1,320 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Selene SIEM - Networking Stack
+  Creates the ALB, security groups, target group, and listeners.
+  Deploy after selene-iam. Required by selene-opensearch and selene-ec2.
+  Spec: docs/components/SPEC-002-networking.md
+  Contracts: docs/architecture/SPEC-008-interface-contracts.md
+
+# ─────────────────────────────────────────────────────────────
+# Parameters
+# ─────────────────────────────────────────────────────────────
+Parameters:
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-06cdf666adc9f698d
+    Description: Existing production VPC
+
+  AlbSubnet1:
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-06e367114ba47947a
+    Description: Public subnet us-east-1a for ALB
+
+  AlbSubnet2:
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-0a2291ca1fe4900c0
+    Description: Public subnet us-east-1b for ALB
+
+  AllowedCidr:
+    Type: String
+    Description: >
+      Your IP /32 for ALB inbound (80, 443) and EC2 SSH (22).
+      Example: 203.0.113.42/32
+    AllowedPattern: (\d{1,3}\.){3}\d{1,3}/\d{1,2}
+    ConstraintDescription: Must be a valid CIDR block e.g. 1.2.3.4/32
+
+  CertificateArn:
+    Type: String
+    Default: arn:aws:acm:us-east-1:757548139022:certificate/3f30c3fd-d826-4980-94e7-f3447d92ec26
+    Description: >
+      ACM certificate ARN for the HTTPS listener.
+      Using the existing *.infillion.com wildcard cert (expires 2026-09-04).
+      This same cert covers selene.infillion.com in Phase 2.
+
+# ─────────────────────────────────────────────────────────────
+# Resources
+# ─────────────────────────────────────────────────────────────
+Resources:
+
+  # ── Security Groups ────────────────────────────────────────
+  #
+  # IMPORTANT: Inter-SG rules are defined as separate
+  # AWS::EC2::SecurityGroupIngress / Egress resources below,
+  # NOT as inline ingress/egress on the SG resource itself.
+  # This avoids CloudFormation circular dependency errors when
+  # two SGs reference each other.
+  # See: SPEC-008 Section 7
+
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: selene-alb-sg
+      GroupDescription: Selene ALB - controls inbound access to dashboard
+      VpcId: !Ref VpcId
+      Tags:
+        - Key: Name
+          Value: selene-alb-sg
+        - Key: Project
+          Value: selene
+        - Key: ManagedBy
+          Value: cloudformation
+
+  Ec2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: selene-ec2-sg
+      GroupDescription: Selene Wazuh EC2 instance
+      VpcId: !Ref VpcId
+      Tags:
+        - Key: Name
+          Value: selene-ec2-sg
+        - Key: Project
+          Value: selene
+        - Key: ManagedBy
+          Value: cloudformation
+
+  OpenSearchSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: selene-opensearch-sg
+      GroupDescription: Selene OpenSearch domain - VPC only
+      VpcId: !Ref VpcId
+      Tags:
+        - Key: Name
+          Value: selene-opensearch-sg
+        - Key: Project
+          Value: selene
+        - Key: ManagedBy
+          Value: cloudformation
+
+  # ── ALB SG Rules ───────────────────────────────────────────
+
+  AlbIngressHttp:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AlbSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      CidrIp: !Ref AllowedCidr
+      Description: HTTP from allowed IP (redirects to HTTPS)
+
+  AlbIngressHttps:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AlbSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: !Ref AllowedCidr
+      Description: HTTPS dashboard access from allowed IP
+
+  AlbEgressToEc2:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref AlbSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      DestinationSecurityGroupId: !Ref Ec2SecurityGroup
+      Description: Forward HTTPS traffic to Wazuh EC2
+
+  # ── EC2 SG Rules ───────────────────────────────────────────
+
+  Ec2IngressFromAlb:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref Ec2SecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !Ref AlbSecurityGroup
+      Description: HTTPS dashboard traffic from ALB only
+
+  Ec2IngressSsh:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref Ec2SecurityGroup
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: !Ref AllowedCidr
+      Description: SSH from allowed IP - temporary, removed in Phase 4
+
+  Ec2EgressToOpenSearch:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref Ec2SecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      DestinationSecurityGroupId: !Ref OpenSearchSecurityGroup
+      Description: Wazuh alert forwarding to OpenSearch
+
+  Ec2EgressHttps:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref Ec2SecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: 0.0.0.0/0
+      Description: Outbound HTTPS for GitHub (git clone) and AWS APIs
+
+  Ec2EgressHttp:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref Ec2SecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      CidrIp: 0.0.0.0/0
+      Description: Outbound HTTP for yum package updates
+
+  # ── OpenSearch SG Rules ────────────────────────────────────
+
+  OpenSearchIngressFromEc2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref OpenSearchSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !Ref Ec2SecurityGroup
+      Description: Wazuh writes alerts to OpenSearch
+
+  # ── ALB ───────────────────────────────────────────────────
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: selene-alb
+      Type: application
+      Scheme: internet-facing
+      Subnets:
+        - !Ref AlbSubnet1
+        - !Ref AlbSubnet2
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+      LoadBalancerAttributes:
+        - Key: deletion_protection.enabled
+          Value: false
+        - Key: access_logs.s3.enabled
+          Value: false
+      Tags:
+        - Key: Name
+          Value: selene-alb
+        - Key: Project
+          Value: selene
+        - Key: ManagedBy
+          Value: cloudformation
+
+  # ── Target Group ───────────────────────────────────────────
+  # Wazuh dashboard listens on HTTPS 443.
+  # Health check uses HTTPS — Wazuh returns 200 on /.
+  # Grace period is handled at the ASG level (600s), not here.
+
+  WazuhTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: selene-wazuh-tg
+      VpcId: !Ref VpcId
+      Protocol: HTTPS
+      Port: 443
+      TargetType: instance
+      HealthCheckProtocol: HTTPS
+      HealthCheckPort: '443'
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: '200,302'
+      Tags:
+        - Key: Project
+          Value: selene
+        - Key: ManagedBy
+          Value: cloudformation
+
+  # ── Listeners ──────────────────────────────────────────────
+
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: '443'
+            StatusCode: HTTP_301
+
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Protocol: HTTPS
+      Port: 443
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref WazuhTargetGroup
+
+# ─────────────────────────────────────────────────────────────
+# Outputs
+# ─────────────────────────────────────────────────────────────
+# Export names are fixed contracts defined in SPEC-008 Section 4.2.
+# Do not rename these without updating all consuming stacks.
+Outputs:
+
+  AlbDnsName:
+    Description: ALB DNS name - use this to reach the dashboard until Phase 2 DNS
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: selene-AlbDnsName
+
+  AlbTargetGroupArn:
+    Description: Target group ARN - consumed by selene-ec2 ASG
+    Value: !Ref WazuhTargetGroup
+    Export:
+      Name: selene-AlbTargetGroupArn
+
+  Ec2SecurityGroupId:
+    Description: EC2 SG ID - consumed by selene-ec2 Launch Template and selene-opensearch
+    Value: !Ref Ec2SecurityGroup
+    Export:
+      Name: selene-Ec2SecurityGroupId
+
+  OpensearchSecurityGroupId:
+    Description: OpenSearch SG ID - consumed by selene-opensearch domain config
+    Value: !Ref OpenSearchSecurityGroup
+    Export:
+      Name: selene-OpensearchSecurityGroupId
+
+  VpcId:
+    Description: VPC ID - consumed by selene-opensearch domain config
+    Value: !Ref VpcId
+    Export:
+      Name: selene-VpcId
+
+  AlbArn:
+    Description: ALB ARN - for reference and Phase 2 Route53 alias
+    Value: !Ref ApplicationLoadBalancer
+    Export:
+      Name: selene-AlbArn

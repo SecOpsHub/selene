@@ -1,0 +1,227 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Selene SIEM - EC2 / ASG Stack
+  Creates the Launch Template, Auto Scaling Group, and UserData
+  that runs the idempotent Ansible playbook on every boot.
+  Deploy last — depends on selene-iam, selene-networking, selene-opensearch.
+  Spec: docs/components/SPEC-003-ec2-asg.md
+  Contracts: docs/architecture/SPEC-008-interface-contracts.md
+
+# ─────────────────────────────────────────────────────────────
+# Parameters
+# ─────────────────────────────────────────────────────────────
+Parameters:
+
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: >
+      Golden AMI ID (selene-base-YYYYMMDD).
+      Base Amazon Linux 2023 with Ansible and git pre-installed.
+      Wazuh is installed at first boot by the Ansible playbook.
+      Update this parameter when a new AMI is baked.
+
+  Ec2Subnet:
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-06e367114ba47947a
+    Description: >
+      Public subnet us-east-1a for Wazuh EC2.
+      POC decision: public subnet used to avoid NAT Gateway dependency
+      for outbound internet (GitHub clone, Wazuh install, AWS APIs).
+      Phase 4 moves to private subnet with SSM Session Manager.
+
+  InstanceType:
+    Type: String
+    Default: t3.xlarge
+    Description: >
+      t3.xlarge (4 vCPU, 16 GB RAM) — minimum comfortable size for
+      Wazuh all-in-one. Wazuh manager + dashboard need ~8 GB RAM.
+
+  HealthCheckGracePeriod:
+    Type: Number
+    Default: 900
+    Description: >
+      Seconds before ALB health check begins evaluating the instance.
+      Set to 900 (15 min) to accommodate Wazuh install on first boot.
+      On subsequent boots (already installed), recovery is ~5 min.
+
+# ─────────────────────────────────────────────────────────────
+# Resources
+# ─────────────────────────────────────────────────────────────
+Resources:
+
+  # ── Launch Template ────────────────────────────────────────
+  WazuhLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: selene-wazuh-lt
+      LaunchTemplateData:
+        ImageId: !Ref AmiId
+        InstanceType: !Ref InstanceType
+
+        # IAM instance profile — grants S3, SSM, OpenSearch access
+        IamInstanceProfile:
+          Arn: !ImportValue selene-InstanceProfileArn
+
+        # Security group from selene-networking stack
+        SecurityGroupIds:
+          - !ImportValue selene-Ec2SecurityGroupId
+
+        # Public subnet — public IP required for outbound internet
+        # (GitHub clone, Wazuh install, AWS APIs)
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            SubnetId: !Ref Ec2Subnet
+            AssociatePublicIpAddress: true
+            Groups:
+              - !ImportValue selene-Ec2SecurityGroupId
+
+        # Root volume: 50 GB gp3, encrypted
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeSize: 50
+              VolumeType: gp3
+              Encrypted: true
+              DeleteOnTermination: true
+
+        # IMDSv2 required — IMDSv1 disabled
+        MetadataOptions:
+          HttpTokens: required
+          HttpPutResponseHopLimit: 1
+          HttpEndpoint: enabled
+
+        # ── UserData ──────────────────────────────────────────
+        # Runs on every instance launch (new and replacement).
+        # 1. Read all config from SSM Parameter Store
+        # 2. Install required Ansible collections
+        # 3. Clone selene repo from GitHub
+        # 4. Run Ansible playbook (idempotent — safe to run repeatedly)
+        #
+        # opensearch_admin_password is NOT read here — the Ansible
+        # playbook reads it directly from SSM SecureString using the
+        # aws_ssm lookup plugin, so it never appears in the process
+        # list or UserData logs.
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            set -euo pipefail
+
+            # Log all output for debugging
+            exec > >(tee /var/log/selene-init.log) 2>&1
+            echo "=== Selene init started: $(date) ==="
+
+            # ── Read config from SSM ────────────────────────
+            echo "Reading SSM parameters..."
+            OPENSEARCH_ENDPOINT=$(aws ssm get-parameter \
+              --name /selene/opensearch_endpoint \
+              --query Parameter.Value --output text)
+
+            CLOUDTRAIL_BUCKET=$(aws ssm get-parameter \
+              --name /selene/cloudtrail_bucket \
+              --query Parameter.Value --output text)
+
+            CLOUDTRAIL_PREFIX=$(aws ssm get-parameter \
+              --name /selene/cloudtrail_prefix \
+              --query Parameter.Value --output text)
+
+            ONLY_LOGS_AFTER=$(aws ssm get-parameter \
+              --name /selene/only_logs_after \
+              --query Parameter.Value --output text)
+
+            echo "OpenSearch endpoint: ${OPENSEARCH_ENDPOINT}"
+            echo "CloudTrail bucket:   ${CLOUDTRAIL_BUCKET}"
+            echo "CloudTrail prefix:   ${CLOUDTRAIL_PREFIX}"
+            echo "Only logs after:     ${ONLY_LOGS_AFTER}"
+
+            # ── Install Ansible collections ─────────────────
+            echo "Installing Ansible collections..."
+            ansible-galaxy collection install \
+              -r /opt/selene/ansible/requirements.yml \
+              --upgrade 2>/dev/null || \
+            ansible-galaxy collection install amazon.aws
+
+            # ── Clone selene repo ───────────────────────────
+            echo "Cloning SecOpsHub/selene..."
+            if [ -d /opt/selene ]; then
+              cd /opt/selene && git pull
+            else
+              git clone https://github.com/SecOpsHub/selene /opt/selene
+            fi
+
+            # Install collections from repo requirements
+            ansible-galaxy collection install \
+              -r /opt/selene/ansible/requirements.yml \
+              --upgrade
+
+            # ── Run Ansible playbook ────────────────────────
+            echo "Running Ansible playbook..."
+            ansible-playbook /opt/selene/ansible/site.yml \
+              --inventory /opt/selene/ansible/inventory/localhost \
+              --extra-vars "opensearch_endpoint=${OPENSEARCH_ENDPOINT} \
+                            cloudtrail_bucket=${CLOUDTRAIL_BUCKET} \
+                            cloudtrail_prefix=${CLOUDTRAIL_PREFIX} \
+                            only_logs_after=${ONLY_LOGS_AFTER}"
+
+            echo "=== Selene init complete: $(date) ==="
+
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: selene-wazuh
+              - Key: Project
+                Value: selene
+              - Key: ManagedBy
+                Value: cloudformation
+
+  # ── Auto Scaling Group ─────────────────────────────────────
+  WazuhAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: selene-asg
+      LaunchTemplate:
+        LaunchTemplateId: !Ref WazuhLaunchTemplate
+        Version: !GetAtt WazuhLaunchTemplate.LatestVersionNumber
+      MinSize: 1
+      MaxSize: 1
+      DesiredCapacity: 1
+      # ALB target group — health check drives auto-replacement
+      TargetGroupARNs:
+        - !ImportValue selene-AlbTargetGroupArn
+      # ELB health check: ALB marks instance unhealthy → ASG replaces
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: !Ref HealthCheckGracePeriod
+      # Terminate oldest instance first (keeps AMI up to date)
+      TerminationPolicies:
+        - OldestInstance
+      Tags:
+        - Key: Name
+          Value: selene-wazuh
+          PropagateAtLaunch: true
+        - Key: Project
+          Value: selene
+          PropagateAtLaunch: true
+        - Key: ManagedBy
+          Value: cloudformation
+          PropagateAtLaunch: true
+
+# ─────────────────────────────────────────────────────────────
+# Outputs
+# ─────────────────────────────────────────────────────────────
+Outputs:
+
+  AsgName:
+    Description: Auto Scaling Group name (for operational runbooks)
+    Value: !Ref WazuhAutoScalingGroup
+    Export:
+      Name: selene-AsgName
+
+  LaunchTemplateId:
+    Description: Launch Template ID (for AMI update procedure)
+    Value: !Ref WazuhLaunchTemplate
+    Export:
+      Name: selene-LaunchTemplateId
+
+  LaunchTemplateLatestVersion:
+    Description: Current Launch Template version
+    Value: !GetAtt WazuhLaunchTemplate.LatestVersionNumber

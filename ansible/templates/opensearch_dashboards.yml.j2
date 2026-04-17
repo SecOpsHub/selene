@@ -1,0 +1,29 @@
+# Selene - Wazuh Dashboard Configuration
+# Managed by Ansible (site.yml section 4) - do not edit directly.
+# Connects the Wazuh dashboard to Amazon OpenSearch Service.
+
+# ── Server ────────────────────────────────────────────────────
+server.host: "0.0.0.0"
+server.port: 443
+
+# Dashboard TLS — self-signed cert from Wazuh installer.
+# The ALB terminates the public TLS (*.infillion.com wildcard cert).
+# ALB → EC2 uses this self-signed cert. ALB does not verify it.
+server.ssl.enabled: true
+server.ssl.key: /etc/wazuh-dashboard/certs/wazuh-dashboard-key.pem
+server.ssl.certificate: /etc/wazuh-dashboard/certs/wazuh-dashboard.pem
+
+# ── OpenSearch Connection ─────────────────────────────────────
+# Password sourced from SSM SecureString /selene/opensearch_admin_password
+opensearch.hosts: ["https://{{ opensearch_endpoint }}:443"]
+opensearch.username: "admin"
+opensearch.password: "{{ opensearch_admin_password }}"
+opensearch.ssl.verificationMode: full
+opensearch.requestHeadersAllowlist: ["securitytenant", "Authorization"]
+
+# ── Wazuh App ─────────────────────────────────────────────────
+uiSettings.overrides.defaultRoute: /app/wz-home
+opensearch_security.multitenancy.enabled: false
+opensearch_security.readonly_mode.roles: ["kibana_read_only"]
+
+logging.dest: /var/log/wazuh-dashboard/wazuh-dashboard.log

@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Selene SIEM - IAM Stack
+  Creates the EC2 instance role and instance profile for the Wazuh server.
+  Deploy this stack first - all other stacks depend on its exports.
+  Spec: docs/components/SPEC-005-iam.md
+  Contracts: docs/architecture/SPEC-008-interface-contracts.md
+
+# ─────────────────────────────────────────────────────────────
+# Parameters
+# ─────────────────────────────────────────────────────────────
+Parameters:
+
+  CloudTrailBucket:
+    Type: String
+    Default: logs.infillion.com
+    Description: S3 bucket containing org-wide CloudTrail logs
+
+  CloudTrailPrefix:
+    Type: String
+    Default: AWSLogs/o-z70v8p3t14/
+    Description: >
+      Org-level S3 prefix for CloudTrail logs.
+      Includes the AWS Organization ID as an intermediate path segment.
+
+  OpenSearchDomainName:
+    Type: String
+    Default: selene-findings
+    Description: >
+      Name of the OpenSearch domain (fixed contract from SPEC-008).
+      The domain does not need to exist yet - the ARN is constructed
+      from this name, the account ID, and the region.
+
+# ─────────────────────────────────────────────────────────────
+# Resources
+# ─────────────────────────────────────────────────────────────
+Resources:
+
+  # ── EC2 Instance Role ──────────────────────────────────────
+  WazuhInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: selene-wazuh-instance-role
+      Description: IAM role for the Selene Wazuh EC2 instance
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Enables SSM Session Manager without requiring port 22
+        # Required now so Phase 4 (remove SSH) needs no role changes
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+
+        # ── CloudTrail S3 Read ─────────────────────────────
+        - PolicyName: selene-cloudtrail-s3-read
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ListBucket
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Sub arn:aws:s3:::${CloudTrailBucket}
+                Condition:
+                  StringLike:
+                    s3:prefix: !Sub ${CloudTrailPrefix}*
+              - Sid: GetObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub arn:aws:s3:::${CloudTrailBucket}/${CloudTrailPrefix}*
+
+        # ── SSM Parameter Read ─────────────────────────────
+        - PolicyName: selene-ssm-read
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadSeleneParameters
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/selene/*
+
+        # ── OpenSearch Write ───────────────────────────────
+        # Domain name is a fixed contract (SPEC-008 Section 2).
+        # The domain does not need to exist for this policy to be valid.
+        - PolicyName: selene-opensearch-write
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: OpenSearchHttpAccess
+                Effect: Allow
+                Action:
+                  - es:ESHttpGet
+                  - es:ESHttpPost
+                  - es:ESHttpPut
+                  - es:ESHttpHead
+                  - es:ESHttpDelete
+                Resource: !Sub arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/${OpenSearchDomainName}/*
+      Tags:
+        - Key: Project
+          Value: selene
+        - Key: ManagedBy
+          Value: cloudformation
+        - Key: Stack
+          Value: selene-iam
+
+  # ── EC2 Instance Profile ───────────────────────────────────
+  WazuhInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: selene-wazuh-instance-profile
+      Roles:
+        - !Ref WazuhInstanceRole
+
+# ─────────────────────────────────────────────────────────────
+# Outputs
+# ─────────────────────────────────────────────────────────────
+# Export names are fixed contracts defined in SPEC-008 Section 4.1.
+# Do not rename these without updating all consuming stacks.
+Outputs:
+
+  InstanceRoleArn:
+    Description: ARN of the Wazuh EC2 instance role
+    Value: !GetAtt WazuhInstanceRole.Arn
+    Export:
+      Name: selene-InstanceRoleArn
+
+  InstanceRoleName:
+    Description: Name of the Wazuh EC2 instance role
+    Value: !Ref WazuhInstanceRole
+    Export:
+      Name: selene-InstanceRoleName
+
+  InstanceProfileArn:
+    Description: ARN of the Wazuh EC2 instance profile
+    Value: !GetAtt WazuhInstanceProfile.Arn
+    Export:
+      Name: selene-InstanceProfileArn
