@@ -58,12 +58,6 @@
         path: "{{ wazuh_install_marker }}"
       register: wazuh_installed
 
-    - name: "[install] Install dependencies"
-      dnf:
-        name: [curl, tar, gzip]
-        state: present
-      when: not wazuh_installed.stat.exists
-
     - name: "[install] Create all-in-one config.yml"
       copy:
         dest: /tmp/config.yml
