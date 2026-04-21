@@ -47,7 +47,7 @@
     <run_on_start>yes</run_on_start>
     <skip_on_error>yes</skip_on_error>
     <bucket type="cloudtrail">
-      <n>{{ cloudtrail_bucket }}</n>
+      <name>{{ cloudtrail_bucket }}</name>
       <aws_organization_id>{{ cloudtrail_org_id }}</aws_organization_id>
       <only_logs_after>{{ only_logs_after }}</only_logs_after>
     </bucket>
