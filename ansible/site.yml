@@ -7,8 +7,8 @@
 # Variables passed via --extra-vars from UserData (all sourced from SSM):
 #   opensearch_endpoint  — OpenSearch VPC hostname
 #   cloudtrail_bucket    — logs.infillion.com
-#   cloudtrail_prefix    — AWSLogs/o-z70v8p3t14/
-#   only_logs_after      — YYYY-MM-DD start date for CloudTrail ingestion
+#   cloudtrail_org_id    — o-z70v8p3t14
+#   only_logs_after      — YYYY-MMM-DD start date for CloudTrail ingestion
 #
 # opensearch_admin_password is read directly from SSM SecureString
 # inside the playbook — never passed as a CLI argument.
@@ -41,6 +41,12 @@
     - name: restart wazuh-dashboard
       systemd:
         name: wazuh-dashboard
+        state: restarted
+        daemon_reload: yes
+
+    - name: restart selene-shipper
+      systemd:
+        name: selene-shipper
         state: restarted
         daemon_reload: yes
 
@@ -254,16 +260,17 @@
         mode: '0600'
       notify: restart wazuh-dashboard
 
-    - name: "[indexer] Stop and disable local wazuh-indexer"
+    - name: "[indexer] Stop and disable local wazuh-indexer (NOT disabled - needed for dashboard)"
       systemd:
         name: wazuh-indexer
-        state: stopped
-        enabled: false
+        state: started
+        enabled: true
       failed_when: false
 
     # ────────────────────────────────────────────────────────────
-    # SECTION 5: Ensure services are running
-    # wazuh-indexer is intentionally excluded (external OpenSearch).
+    # SECTION 5: Ensure core services are running
+    # Note: filebeat is DISABLED - replaced by selene-shipper
+    # wazuh-indexer runs locally (dashboard reads from it)
     # ────────────────────────────────────────────────────────────
 
     - name: "[services] Ensure wazuh-manager is enabled and started"
@@ -273,9 +280,16 @@
         enabled: true
         daemon_reload: yes
 
-    - name: "[services] Ensure filebeat is enabled and started"
+    - name: "[services] Disable filebeat (replaced by selene-shipper)"
       systemd:
         name: filebeat
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: "[services] Ensure wazuh-indexer is enabled and started"
+      systemd:
+        name: wazuh-indexer
         state: started
         enabled: true
         daemon_reload: yes
@@ -294,6 +308,73 @@
         timeout: 60
       ignore_errors: true
 
+    # ────────────────────────────────────────────────────────────
+    # SECTION 6: Deploy selene-shipper
+    # Replaces filebeat for AL2023 compatibility.
+    # Replicates all official Wazuh filebeat pipeline.json transforms:
+    #   - @timestamp normalization
+    #   - data.aws.accountId, data.aws.region aliases
+    #   - GeoLocation via local GeoLite2-City.mmdb
+    # ────────────────────────────────────────────────────────────
+
+    - name: "[shipper] Install geoip2 Python library"
+      pip:
+        name: geoip2
+        state: present
+        executable: pip3
+
+    - name: "[shipper] Read wazuh-indexer admin password from SSM SecureString"
+      shell: |
+        aws ssm get-parameter \
+          --name /selene/wazuh_indexer_admin_password \
+          --with-decryption \
+          --query Parameter.Value \
+          --output text \
+          --region us-east-1
+      register: indexer_password_result
+      no_log: true
+
+    - name: "[shipper] Deploy selene-shipper.py"
+      copy:
+        src: "{{ playbook_dir }}/files/selene-shipper.py"
+        dest: /usr/local/bin/selene-shipper.py
+        owner: root
+        group: root
+        mode: '0755'
+      notify: restart selene-shipper
+
+    - name: "[shipper] Set indexer password in selene-shipper.py"
+      replace:
+        path: /usr/local/bin/selene-shipper.py
+        regexp: '__INDEXER_PASSWORD__'
+        replace: "{{ indexer_password_result.stdout }}"
+      no_log: true
+      notify: restart selene-shipper
+
+    - name: "[shipper] Deploy selene-shipper systemd service"
+      copy:
+        src: "{{ playbook_dir }}/files/selene-shipper.service"
+        dest: /etc/systemd/system/selene-shipper.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart selene-shipper
+
+    - name: "[shipper] Ensure /var/lib/selene-shipper directory exists"
+      file:
+        path: /var/lib/selene-shipper
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "[shipper] Enable and start selene-shipper"
+      systemd:
+        name: selene-shipper
+        state: started
+        enabled: true
+        daemon_reload: yes
+
     - name: "[services] Report final service status"
       command: systemctl is-active {{ item }}
       register: svc_status
@@ -301,11 +382,12 @@
       failed_when: false
       loop:
         - wazuh-manager
-        - filebeat
-        - wazuh-dashboard
         - wazuh-indexer
+        - wazuh-dashboard
+        - selene-shipper
 
     - name: "[services] Print service status"
       debug:
         msg: "{{ item.item }}: {{ item.stdout }}"
       loop: "{{ svc_status.results }}"
+

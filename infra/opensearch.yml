@@ -100,16 +100,19 @@ Resources:
           MasterUserPassword: !Ref MasterUserPassword
 
       # ── Access Policy ────────────────────────────────────
-      # Allows the EC2 instance role to perform all OpenSearch
-      # HTTP operations on this domain.
-      # The security group provides network-level access control —
-      # only EC2 in selene-ec2-sg can reach port 443 on this domain.
+      # Allow all principals — fine-grained access control handles
+      # actual authentication (username/password or IAM).
+      # Network-level restriction is enforced by the security group:
+      # only selene-ec2-sg can reach port 443 on this domain.
+      # Setting Principal to * is required for internal user database
+      # (username/password) auth to work — IAM-only policies reject
+      # password auth as anonymous before FGAC evaluates credentials.
       AccessPolicies:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !ImportValue selene-InstanceRoleArn
+              AWS: '*'
             Action: es:*
             Resource: !Sub arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/selene-findings/*
 

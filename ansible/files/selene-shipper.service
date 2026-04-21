@@ -1,0 +1,16 @@
+[Unit]
+Description=Selene Alert Shipper
+Documentation=https://github.com/SecOpsHub/selene
+After=wazuh-manager.service wazuh-indexer.service
+Wants=wazuh-manager.service wazuh-indexer.service
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/bin/selene-shipper.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=selene-shipper
+
+[Install]
+WantedBy=multi-user.target

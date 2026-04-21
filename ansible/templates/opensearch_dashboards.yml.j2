@@ -18,7 +18,12 @@ server.ssl.certificate: /etc/wazuh-dashboard/certs/wazuh-dashboard.pem
 opensearch.hosts: ["https://{{ opensearch_endpoint }}:443"]
 opensearch.username: "admin"
 opensearch.password: "{{ opensearch_admin_password }}"
-opensearch.ssl.verificationMode: full
+opensearch.ssl.verificationMode: none
+# POC: Amazon Trust Services CA not in Node.js bundle used by wazuh-dashboard.
+# SL-004: Set to 'full' in production after adding Amazon CA cert to Node.js trust store.
+opensearch.ignoreVersionMismatch: true
+# Wazuh dashboard version may be ahead of Amazon OpenSearch Service version.
+# This is safe — the API surface used by Wazuh is stable across minor versions.
 opensearch.requestHeadersAllowlist: ["securitytenant", "Authorization"]
 
 # ── Wazuh App ─────────────────────────────────────────────────

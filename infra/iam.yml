@@ -65,14 +65,11 @@ Resources:
                 Action:
                   - s3:ListBucket
                 Resource: !Sub arn:aws:s3:::${CloudTrailBucket}
-                Condition:
-                  StringLike:
-                    s3:prefix: !Sub ${CloudTrailPrefix}*
               - Sid: GetObjects
                 Effect: Allow
                 Action:
                   - s3:GetObject
-                Resource: !Sub arn:aws:s3:::${CloudTrailBucket}/${CloudTrailPrefix}*
+                Resource: !Sub arn:aws:s3:::${CloudTrailBucket}/AWSLogs/*
 
         # ── SSM Parameter Read ─────────────────────────────
         - PolicyName: selene-ssm-read
