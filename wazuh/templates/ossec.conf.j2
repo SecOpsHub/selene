@@ -6,7 +6,7 @@
 
   Variables injected by Ansible from SSM:
     cloudtrail_bucket  -- logs.infillion.com
-    cloudtrail_prefix  -- AWSLogs/o-z70v8p3t14/
+    cloudtrail_org_id  -- o-z70v8p3t14
     only_logs_after    -- YYYY-MM-DD
 -->
 <ossec_config>
@@ -47,8 +47,8 @@
     <run_on_start>yes</run_on_start>
     <skip_on_error>yes</skip_on_error>
     <bucket type="cloudtrail">
-      <name>{{ cloudtrail_bucket }}</name>
-      <path>{{ cloudtrail_prefix }}</path>
+      <n>{{ cloudtrail_bucket }}</n>
+      <aws_organization_id>{{ cloudtrail_org_id }}</aws_organization_id>
       <only_logs_after>{{ only_logs_after }}</only_logs_after>
     </bucket>
   </wodle>
