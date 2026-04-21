@@ -62,12 +62,10 @@ Resources:
         IamInstanceProfile:
           Arn: !ImportValue selene-InstanceProfileArn
 
-        # Security group from selene-networking stack
-        SecurityGroupIds:
-          - !ImportValue selene-Ec2SecurityGroupId
-
         # Public subnet — public IP required for outbound internet
         # (GitHub clone, Wazuh install, AWS APIs)
+        # Security group defined inside NetworkInterfaces (required when
+        # using NetworkInterfaces — cannot also set top-level SecurityGroupIds)
         NetworkInterfaces:
           - DeviceIndex: 0
             SubnetId: !Ref Ec2Subnet

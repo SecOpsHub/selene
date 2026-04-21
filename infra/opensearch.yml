@@ -24,6 +24,15 @@ Parameters:
     MaxValue: 512
     Description: EBS volume size in GB for OpenSearch storage
 
+  MasterUserPassword:
+    Type: String
+    NoEcho: true
+    Description: >
+      Admin password for OpenSearch internal user database.
+      Pass at deploy time by reading from SSM SecureString.
+      Never stored in the template. Masked in CloudFormation console.
+      See deploy command in SPEC-009 T03.
+
 # ─────────────────────────────────────────────────────────────
 # Resources
 # ─────────────────────────────────────────────────────────────
@@ -88,7 +97,7 @@ Resources:
         InternalUserDatabaseEnabled: true
         MasterUserOptions:
           MasterUserName: admin
-          MasterUserPassword: '{{resolve:ssm-secure:/selene/opensearch_admin_password}}'
+          MasterUserPassword: !Ref MasterUserPassword
 
       # ── Access Policy ────────────────────────────────────
       # Allows the EC2 instance role to perform all OpenSearch
