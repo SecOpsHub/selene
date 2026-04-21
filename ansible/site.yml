@@ -117,13 +117,13 @@
       no_log: true
 
     - name: "[install] Store Wazuh indexer password in SSM SecureString"
-      amazon.aws.ssm_parameter:
-        name: /selene/wazuh_indexer_admin_password
-        value: "{{ wazuh_indexer_password.stdout }}"
-        string_type: SecureString
-        region: us-east-1
-        state: present
-        overwrite_value: always
+      shell: |
+        aws ssm put-parameter \
+          --name /selene/wazuh_indexer_admin_password \
+          --value "{{ wazuh_indexer_password.stdout }}" \
+          --type SecureString \
+          --region us-east-1 \
+          --overwrite
       when:
         - not wazuh_installed.stat.exists
         - wazuh_indexer_password.stdout is defined
@@ -195,11 +195,19 @@
     # ────────────────────────────────────────────────────────────
 
     - name: "[indexer] Read OpenSearch admin password from SSM SecureString"
+      shell: |
+        aws ssm get-parameter \
+          --name /selene/opensearch_admin_password \
+          --with-decryption \
+          --query Parameter.Value \
+          --output text \
+          --region us-east-1
+      register: opensearch_password_result
+      no_log: true
+
+    - name: "[indexer] Set opensearch_admin_password fact"
       set_fact:
-        opensearch_admin_password: "{{ lookup('amazon.aws.aws_ssm',
-          '/selene/opensearch_admin_password',
-          decrypt=True,
-          region='us-east-1') }}"
+        opensearch_admin_password: "{{ opensearch_password_result.stdout }}"
       no_log: true
 
     - name: "[indexer] Configure filebeat to send to Amazon OpenSearch"
