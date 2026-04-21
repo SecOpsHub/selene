@@ -326,7 +326,6 @@
       pip:
         name: geoip2
         state: present
-        extra_args: "--break-system-packages"
 
     - name: "[shipper] Read wazuh-indexer admin password from SSM SecureString"
       shell: |
