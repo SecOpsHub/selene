@@ -58,7 +58,47 @@
         path: "{{ wazuh_install_marker }}"
       register: wazuh_installed
 
-    - name: "[install] Create all-in-one config.yml"
+    - name: "[install] Resolve latest Wazuh {{ wazuh_major_version }}.x version"
+      shell: |
+        curl -s https://api.github.com/repos/wazuh/wazuh/releases \
+          | python3 -c "
+        import sys, json
+        releases = json.load(sys.stdin)
+        versions = [r['tag_name'].lstrip('v') for r in releases
+                    if r['tag_name'].startswith('v{{ wazuh_major_version }}.')
+                    and not r['prerelease']]
+        print(versions[0])
+        "
+      register: wazuh_latest_version
+      when: not wazuh_installed.stat.exists
+
+    - name: "[install] Set Wazuh minor version fact"
+      set_fact:
+        wazuh_minor_version: "{{ wazuh_latest_version.stdout.split('.')[:2] | join('.') }}"
+      when: not wazuh_installed.stat.exists
+
+    - name: "[install] Show Wazuh version being installed"
+      debug:
+        msg: "Installing Wazuh {{ wazuh_latest_version.stdout }} ({{ wazuh_minor_version }}.x)"
+      when: not wazuh_installed.stat.exists
+
+    - name: "[install] Download Wazuh install script ({{ wazuh_major_version }}.x latest)"
+      get_url:
+        url: "https://packages.wazuh.com/{{ wazuh_minor_version }}/wazuh-install.sh"
+        dest: /tmp/wazuh-install.sh
+        mode: '0755'
+        timeout: 60
+      when: not wazuh_installed.stat.exists
+
+    - name: "[install] Download Wazuh config.yml"
+      get_url:
+        url: "https://packages.wazuh.com/{{ wazuh_minor_version }}/config.yml"
+        dest: /tmp/config.yml
+        mode: '0644'
+        timeout: 60
+      when: not wazuh_installed.stat.exists
+
+    - name: "[install] Configure config.yml for all-in-one (127.0.0.1)"
       copy:
         dest: /tmp/config.yml
         mode: '0644'
@@ -73,14 +113,6 @@
             dashboard:
               - name: dashboard
                 ip: "127.0.0.1"
-      when: not wazuh_installed.stat.exists
-
-    - name: "[install] Download Wazuh {{ wazuh_major_version }}.x install script"
-      get_url:
-        url: "https://packages.wazuh.com/{{ wazuh_major_version }}.x/wazuh-install.sh"
-        dest: /tmp/wazuh-install.sh
-        mode: '0755'
-        timeout: 60
       when: not wazuh_installed.stat.exists
 
     - name: "[install] Run Wazuh all-in-one installer (takes 5-15 min)"
