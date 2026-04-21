@@ -317,11 +317,16 @@
     #   - GeoLocation via local GeoLite2-City.mmdb
     # ────────────────────────────────────────────────────────────
 
+    - name: "[shipper] Ensure python3-pip is installed"
+      dnf:
+        name: python3-pip
+        state: present
+
     - name: "[shipper] Install geoip2 Python library"
       pip:
         name: geoip2
         state: present
-        executable: pip3
+        extra_args: "--break-system-packages"
 
     - name: "[shipper] Read wazuh-indexer admin password from SSM SecureString"
       shell: |

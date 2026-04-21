@@ -65,8 +65,8 @@ Wait for installation to complete (~10-15 minutes).
 ## Step 3 — Install Additional Dependencies
 
 ```bash
-# Install Ansible
-sudo dnf install -y ansible
+# Install Ansible and pip
+sudo dnf install -y ansible python3-pip
 
 # Verify git is present (should be on AL2023)
 git --version
