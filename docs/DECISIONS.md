@@ -72,3 +72,87 @@ update. Stack outputs/imports are the contract between them.
 Security best practice. IMDSv1 disabled. No code in this project
 requires IMDSv1 — the AWS CLI and Ansible AWS modules all support
 IMDSv2.
+
+
+## 2026-04-21 — POC Deployment Day
+
+**91 accounts in org (not 60)**
+Discovery showed 91 accounts under o-z70v8p3t14, not ~60 as originally
+estimated. 19 are zero-activity reservation accounts (EC2 reserved
+instance purchases with no workloads). These are harmless — the wodle
+skips them in seconds. All specs updated from ~60 to 91.
+
+**filebeat 7.10.2 incompatible with AL2023 kernel 6.1 — permanent replacement**
+filebeat crashes with pthread_create: Operation not permitted due to
+seccomp restrictions in AL2023 kernel 6.1. No configuration fix is
+possible — this is a binary incompatibility with the Go 1.14 runtime.
+selene-shipper.py (Python) permanently replaces filebeat. It replicates
+all official Wazuh filebeat pipeline.json field transformations including
+GeoIP lookups using the GeoLite2-City.mmdb bundled with wazuh-indexer.
+This is logged as SL-005.
+
+**Amazon OpenSearch Service not used — wazuh-indexer is local**
+The Wazuh dashboard (Node.js) requires local OpenSearch on port 9200.
+Amazon OpenSearch Service rejects the dashboard connection because:
+1. The _nodes API is restricted (required by dashboard for version check)
+2. OpenSearch 2.11 vs dashboard 2.19.4 version mismatch
+3. The geoip ingest processor is not available in Amazon OpenSearch Service
+Decision: wazuh-indexer runs locally. selene-opensearch CloudFormation
+stack to be deleted (~$60/mo savings). ADR-001 is superseded.
+
+**EBS volume for wazuh-indexer data persistence**
+200GB gp3 EBS volume (vol-0b37de9c1bfd8afdd) mounted at
+/var/lib/wazuh-indexer. Survives EC2 termination. UUID in /etc/fstab.
+Reattachment to ASG replacement instances is not yet automated (SL-006).
+
+**selene-shipper field normalizations match official pipeline.json**
+The official Wazuh filebeat pipeline.json (github.com/wazuh/wazuh) defines
+these transforms which selene-shipper replicates exactly:
+- @timestamp ← timestamp (ISO8601)
+- data.aws.accountId ← data.aws.aws_account_id
+- data.aws.region ← data.aws.awsRegion
+- GeoLocation ← geoip on data.srcip, data.aws.sourceIPAddress,
+  data.aws.client_ip, data.win.eventdata.ipAddress,
+  data.aws.service.action.networkConnectionAction.remoteIpDetails.ipAddressV4,
+  data.aws.httpRequest.clientIp, data.gcp.jsonPayload.sourceIP,
+  data.office365.ClientIP
+
+**ossec.conf bucket name tag must be <name> not <n>**
+Wazuh wazuh-modulesd rejects <n> with "No such child tag 'n' of bucket".
+The correct XML tag for the bucket name in the aws-s3 wodle is <name>.
+This caused repeated wazuh-manager startup failures during deployment.
+Fixed in wazuh/templates/ossec.conf.j2.
+
+**only_logs_after date format is YYYY-MMM-DD**
+Wazuh aws-s3 wodle rejects numeric month format (2026-04-21).
+Correct format is 2026-Apr-21. The SSM parameter /selene/only_logs_after
+must use three-letter month abbreviation. SSM parameter updated.
+
+**aws-s3 wodle uses aws_organization_id not path for org CloudTrail**
+The <path> parameter causes Wazuh to double-prefix the path
+(AWSLogs/o-z70v8p3t14/AWSLogs/). The correct approach for org-level
+CloudTrail is the <aws_organization_id> tag which auto-resolves the
+correct S3 path structure.
+
+**ISM 90-day retention policy applied to local wazuh-indexer**
+Policy selene-90-day-retention created on local wazuh-indexer with
+ism_template covering wazuh-alerts-*. Applied manually to existing
+indices. New indices auto-enrolled via ism_template.
+
+**Ansible site.yml is single-file (no roles directory)**
+The original SPEC-006 called for separate Ansible roles. During
+implementation a flat single-file playbook was used instead. The roles
+directory was removed. site.yml is the single source of truth for all
+Ansible configuration tasks.
+
+**Dashboard timezone set to UTC**
+All alert timestamps are stored in UTC (@timestamp from Wazuh).
+Setting the Wazuh dashboard timezone to UTC ensures time-range
+filters match the actual data timestamps.
+
+**S3 backlog ingestion rate**
+With 91 accounts and only_logs_after set to 12 days prior, the wodle
+processes accounts sequentially. At ~1 account per 15-20 minutes for
+backlog, full coverage takes several hours. only_logs_after reset to
+today (2026-Apr-21) to get all 91 accounts appearing in the dashboard
+quickly. Backlog processing abandoned in favor of live coverage.

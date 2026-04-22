@@ -1,134 +1,148 @@
-# SPEC-004 — Amazon OpenSearch Service Domain
+# SPEC-004 — OpenSearch (Local wazuh-indexer)
 
-**Version:** 0.1  
-**Status:** Draft  
-**Depends on:** SPEC-002  
-**CloudFormation stack:** `selene-opensearch`
-
----
-
-## 1. Overview
-
-Amazon OpenSearch Service is the durable findings store for Selene.
-It is intentionally separate from the EC2 instance so that findings
-survive EC2 termination and replacement. This is the primary mechanism
-for meeting G3 (durable findings) and enabling G4 (stateless recovery).
+**Version:** 0.2
+**Status:** Revised — architecture changed during POC deployment
+**Depends on:** SPEC-002
+**CloudFormation stack:** `selene-opensearch` (deployed but NOT USED — pending deletion)
 
 ---
 
-## 2. Domain Configuration
+## 1. Architecture Change Summary
+
+The original design called for Amazon OpenSearch Service as the durable
+findings store. During POC deployment this was found to be incompatible
+with the Wazuh dashboard for three reasons:
+
+1. **_nodes API restricted** — Amazon OpenSearch Service restricts the
+   `_nodes` API. The Wazuh dashboard (Node.js) calls this API at startup
+   to retrieve version information. Without it, the dashboard cannot connect.
+
+2. **Version mismatch** — Wazuh dashboard 2.19.4 vs Amazon OpenSearch
+   2.11.0. The dashboard rejects the connection.
+
+3. **geoip processor unavailable** — The official Wazuh filebeat pipeline
+   uses the `geoip` ingest processor which is not available in Amazon
+   OpenSearch Service. This caused filebeat to fail on pipeline load.
+
+**Decision:** Use the local `wazuh-indexer` (bundled OpenSearch) as the
+findings store. Findings persistence is achieved via a dedicated EBS volume
+mounted at `/var/lib/wazuh-indexer`.
+
+---
+
+## 2. Current Architecture
+
+### Local wazuh-indexer
 
 | Property | Value |
 |---|---|
-| Engine | OpenSearch 2.x (latest available at deploy time) |
-| Instance type | `t3.medium.search` |
-| Instance count | 1 |
-| Storage type | EBS gp3 |
-| Storage size | 100 GB |
-| Multi-AZ | No (POC; Phase 2 adds second node) |
-| Endpoint | VPC-only (no public endpoint) |
-| Subnet | Private subnet (same as EC2; from RESULTS.md) |
-| Security group | `selene-opensearch-sg` (SPEC-002) |
-| Encryption at rest | Yes (AWS managed key) |
-| Encryption in transit | Yes (HTTPS enforced, HTTP rejected) |
-| Fine-grained access control | Enabled |
-| Master user | IAM-based (EC2 instance role; SPEC-005) |
-| Automated snapshots | Daily (AWS managed, 14-day retention) |
+| Process | wazuh-indexer (bundled OpenSearch) |
+| Port | 9200 (HTTPS, self-signed cert) |
+| Data path | /var/lib/wazuh-indexer |
+| Storage | EBS vol-0b37de9c1bfd8afdd (200GB gp3) |
+| Persistence | EBS survives EC2 termination |
+| Cluster name | wazuh-cluster |
+| Admin username | admin |
+| Admin password | SSM SecureString /selene/wazuh_indexer_admin_password |
 
----
+### EBS Volume
 
-## 3. Index Structure
+| Property | Value |
+|---|---|
+| Volume ID | vol-0b37de9c1bfd8afdd |
+| Size | 200 GB gp3 |
+| AZ | us-east-1a (same as EC2) |
+| Mount point | /var/lib/wazuh-indexer |
+| fstab | UUID-based, nofail |
+| Encryption | Yes (EBS encryption) |
+| Estimated capacity | ~90 days at full 91-account volume |
 
-Wazuh writes alerts to time-based indices using this pattern:
+### Index Structure
 
 ```
-wazuh-alerts-4.x-YYYY.MM.DD
+wazuh-alerts-4.x-YYYY.MM.DD   ← one index per day
+wazuh-monitoring-YYYY.WWw      ← Wazuh monitoring stats
+wazuh-statistics-YYYY.WWw      ← Wazuh statistics
+wazuh-states-*                 ← inventory/state data
 ```
 
-One index per day. At 90-day retention with ~50k CloudTrail events/day,
-this is approximately 4.5M documents. Well within `t3.medium.search`
-capacity on 100 GB storage.
-
----
-
-## 4. Index State Management (ISM) Policy
-
-An ISM policy is applied to all `wazuh-alerts-*` indices to enforce
-the 90-day findings retention requirement (G7).
+### ISM Retention Policy
 
 Policy name: `selene-90-day-retention`
-
-```
-State: hot
-  - min_index_age: 90d → transition to delete
-
-State: delete
-  - Action: delete index
-```
-
-This policy is applied automatically to all `wazuh-alerts-*` indices
-via an index template.
+Applied to: `wazuh-alerts-*` indices
+Action: delete after 90 days
 
 ---
 
-## 5. Access Control
+## 3. Alert Ingestion (selene-shipper)
 
-Fine-grained access control uses IAM authentication. The Wazuh EC2
-instance role (SPEC-005) is mapped to the OpenSearch `all_access` role
-in the internal user database. No username/password is used.
+The local wazuh-indexer receives alerts from `selene-shipper.py`, a Python
+service that replaces filebeat. It tails `/var/ossec/logs/alerts/alerts.json`
+and ships documents via the OpenSearch bulk API.
 
-The OpenSearch domain has no public endpoint. It is only reachable:
-- From within the VPC on port 443
-- By principals whose IAM role is mapped in fine-grained access control
+Field normalizations applied (matching official Wazuh pipeline.json):
 
----
-
-## 6. SSM Parameters
-
-All Selene runtime configuration is stored in SSM Parameter Store.
-EC2 UserData reads these at boot — nothing is hardcoded in the AMI
-or Launch Template.
-
-| Parameter | Value | Set When |
-|---|---|---|
-| `/selene/opensearch_endpoint` | OpenSearch VPC endpoint hostname | After OpenSearch stack deploys |
-| `/selene/cloudtrail_bucket` | `logs.infillion.com` | Before first EC2 launch |
-| `/selene/cloudtrail_prefix` | `AWSLogs/o-z70v8p3t14/` | Before first EC2 launch |
-
-The org-level prefix (`o-z70v8p3t14`) is a separate parameter rather
-than hardcoded in the AMI so it can be updated without a Golden AMI
-rebake if the org structure ever changes.
-
----
-
-## 7. Cost Estimate
-
-| Item | Monthly Cost |
+| Field | Source |
 |---|---|
-| `t3.medium.search` instance | ~$50 |
-| 100 GB gp3 EBS | ~$10 |
-| **Total** | **~$60/mo** |
+| `@timestamp` | `timestamp` |
+| `data.aws.accountId` | `data.aws.aws_account_id` |
+| `data.aws.region` | `data.aws.awsRegion` |
+| `GeoLocation` | geoip lookup on 8 IP fields via GeoLite2-City.mmdb |
 
 ---
 
-## 8. CloudFormation Stack Outputs
+## 4. Amazon OpenSearch Service Stack (NOT USED)
 
-| Export Name | Value | Consumed By |
+The `selene-opensearch` CloudFormation stack was deployed but is not used.
+
+**Pending action:** Delete the stack to stop incurring ~$60/mo in charges:
+```bash
+aws cloudformation delete-stack --stack-name selene-opensearch
+```
+
+The stack created:
+- Domain: `selene-findings` (OpenSearch 2.11.0, t3.medium.search)
+- VPC endpoint (internal only)
+- 100GB gp3 EBS storage
+
+The SSM parameter `/selene/opensearch_endpoint` is kept for reference
+but the endpoint is not in use.
+
+---
+
+## 5. Cost Comparison
+
+| Approach | Monthly Cost | Status |
 |---|---|---|
-| `selene-OpenSearchEndpoint` | VPC endpoint hostname | Stored in SSM; used by EC2 UserData |
-| `selene-OpenSearchArn` | Domain ARN | selene-iam stack (IAM policy resource) |
-| `selene-OpenSearchDomainName` | Domain name | Documentation |
+| Amazon OpenSearch Service (original plan) | ~$60 | Not used |
+| Local wazuh-indexer + 200GB EBS | ~$16 | Current |
+| Savings | ~$44/mo | |
 
 ---
 
-## 9. Acceptance Criteria
+## 6. Known Limitations
+
+**SL-006 — EBS reattach not automated**
+If the ASG launches a replacement EC2, it will not automatically reattach
+vol-0b37de9c1bfd8afdd. Data is safe on the EBS volume but inaccessible
+until the volume is manually reattached and mounted.
+
+Resolution (Phase 2): Add EBS reattach logic to UserData or a Lambda
+triggered by ASG lifecycle hook.
+
+**No HA**
+Single-node indexer, single AZ. Acceptable for POC.
+
+---
+
+## 7. Acceptance Criteria (Updated)
 
 | ID | Criterion |
 |---|---|
-| AC1 | Domain is reachable from EC2 on port 443 |
-| AC2 | Domain returns 403 from any host outside the VPC |
-| AC3 | `wazuh-alerts-*` indices appear after Wazuh connects |
-| AC4 | ISM policy `selene-90-day-retention` is active on `wazuh-alerts-*` |
-| AC5 | HTTPS is enforced (HTTP connections rejected) |
-| AC6 | EC2 instance role can write to indices without username/password |
-| AC7 | Terminating EC2 does not affect indices in OpenSearch |
+| AC1 | wazuh-indexer is active and healthy (green cluster status) |
+| AC2 | EBS volume mounted at /var/lib/wazuh-indexer with UUID in fstab |
+| AC3 | wazuh-alerts-* indices appear and grow as CloudTrail events are processed |
+| AC4 | ISM policy selene-90-day-retention is active on wazuh-alerts-* |
+| AC5 | selene-shipper ships alerts with accountId, region, GeoLocation fields |
+| AC6 | Terminating EC2 does not destroy index data (EBS persists) |
+| AC7 | selene-opensearch CloudFormation stack deleted |

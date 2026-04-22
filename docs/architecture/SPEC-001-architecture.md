@@ -1,7 +1,7 @@
 # SPEC-001 — Selene SIEM Architecture Specification
 
-**Version:** 0.1  
-**Status:** Draft  
+**Version:** 0.2  
+**Status:** POC Running  
 **Author:** Aslan  
 **Created:** 2025  
 **Project:** Selene  
@@ -10,7 +10,7 @@
 
 ## 1. Problem Statement
 
-Infillion operates a ~60-account AWS Organization and currently relies on
+Infillion operates a 91-account AWS Organization and currently relies on
 expensive third-party SIEM tooling for security event visibility. CloudTrail
 logs from all accounts are already centralized in the management account S3
 bucket. The goal is to deploy a self-hosted, open-source SIEM (Wazuh) that
@@ -26,7 +26,7 @@ detection rules.
 |---|---|
 | G1 | Ingest org-wide CloudTrail logs from the existing management account S3 bucket into Wazuh |
 | G2 | Provide a web-accessible Wazuh dashboard for the security team |
-| G3 | Store findings in a durable, managed backend (Amazon OpenSearch Service) that survives EC2 failure |
+| G3 | Store findings durably so they survive EC2 failure (EBS volume mounted at /var/lib/wazuh-indexer) |
 | G4 | Achieve automatic EC2 recovery with RTO ≤ 10 minutes via ASG + Golden AMI |
 | G5 | Codify all server configuration as Ansible; all infrastructure as CloudFormation |
 | G6 | Maintain 1 year of raw CloudTrail log retention (SOC 2 compliance) |
@@ -118,11 +118,12 @@ Auto Scaling Group
 ## 6. Data Flow
 
 1. Member accounts write CloudTrail logs to management account S3 bucket
-2. Wazuh EC2 polls S3 via `wodle/aws-s3` module every 5 minutes
-3. Wazuh Manager processes log events against ruleset, generates alerts
-4. Alerts forwarded to Amazon OpenSearch Service over HTTPS (port 443)
-5. Security team accesses Wazuh Dashboard via ALB on port 443
-6. ALB security group restricts inbound access to known IP `/32`
+2. Wazuh EC2 polls S3 via `wodle/aws-s3` module every 5 minutes (aws_organization_id mode)
+3. Wazuh Manager processes log events against ruleset, writes alerts to alerts.json
+4. selene-shipper.py tails alerts.json, normalizes fields, ships to local wazuh-indexer
+5. wazuh-indexer stores findings on persistent EBS volume (200GB gp3)
+6. Security team accesses Wazuh Dashboard via ALB on port 443
+7. ALB security group restricts inbound access to known IP `/32`
 
 ---
 
@@ -146,7 +147,7 @@ This is the core reliability design. State is intentionally separated:
 | State Type | Where Stored | Survives EC2 Loss? |
 |---|---|---|
 | Raw CloudTrail logs | S3 (existing) | Yes |
-| Wazuh findings/alerts | Amazon OpenSearch Service | Yes |
+| Wazuh findings/alerts | Local wazuh-indexer on EBS vol-0b37de9c1bfd8afdd | Yes (EBS survives EC2) |
 | Wazuh rules | GitHub (`wazuh/rules/`) | Yes |
 | Wazuh suppressions | GitHub (`wazuh/suppressions/`) | Yes |
 | Wazuh config (ossec.conf) | GitHub (`wazuh/templates/`) | Yes |
@@ -162,15 +163,15 @@ The EC2 instance is treated as ephemeral. Nothing critical lives only on it.
 | Component | Type | Est. Monthly Cost |
 |---|---|---|
 | Wazuh EC2 | t3.xlarge on-demand | ~$120 |
-| Amazon OpenSearch | t3.medium.search × 1 | ~$55 |
-| OpenSearch EBS | 100 GB gp3 | ~$10 |
+| EBS volume | 200 GB gp3 | ~$16 |
 | ALB | per LCU + hourly | ~$20 |
 | S3 API calls | polling 5 min interval | ~$5 |
 | Data transfer | minimal (VPC internal) | ~$5 |
-| **Total** | | **~$215/mo** |
+| **Total** | | **~$166/mo** |
 
+Amazon OpenSearch Service (~$60/mo) not used — pending stack deletion.
 Well within the $350/mo target. EC2 reserved instance (1-year) reduces
-EC2 cost to ~$75/mo, bringing total to ~$170/mo if committed.
+EC2 cost to ~$75/mo, bringing total to ~$121/mo if committed.
 
 ---
 
@@ -182,13 +183,15 @@ All environment-specific values resolved. See `docs/discovery/RESULTS.md`.
 |---|---|
 | VPC ID | `vpc-06cdf666adc9f698d` (production-vpc, 10.1.0.0/16) |
 | ALB subnets | `subnet-06e367114ba47947a` (us-east-1a), `subnet-0a2291ca1fe4900c0` (us-east-1b) |
-| EC2 / OpenSearch subnet | `subnet-0934cf17ca2678038` (us-east-1a, private) |
+| EC2 subnet | `subnet-06e367114ba47947a` (us-east-1a, **public** — POC decision) |
+| OpenSearch subnet | `subnet-0934cf17ca2678038` (us-east-1a, private) |
 | CloudTrail trail | `full-org-events` (multi-region, org-level) |
 | CloudTrail bucket | `logs.infillion.com` |
-| CloudTrail S3 prefix | `AWSLogs/o-z70v8p3t14/` (org-level path — includes org ID) |
+| CloudTrail S3 prefix | `AWSLogs/o-z70v8p3t14/` (org-level path) |
 | Organization ID | `o-z70v8p3t14` |
 | Management account ID | `757548139022` |
 | Region | `us-east-1` |
+| Accounts in org | 91 (19 zero-activity reservation accounts) |
 | Active regions in logs | 16 (all major AWS regions confirmed) |
 
 ---
@@ -250,9 +253,21 @@ Resolution: mount EFS for `/var/ossec/wodles/aws/` in a future phase.
 ALB uses a self-signed certificate during POC. Browsers will show a
 security warning. Resolution: ACM + Route 53 in Phase 2.
 
-**SL-003 — Single OpenSearch node, no multi-AZ**
-OpenSearch domain has one node in one AZ. Unavailable during AWS
-maintenance events for that AZ. Resolution: 2-node multi-AZ in Phase 2.
+**SL-003 — Single wazuh-indexer node**
+Local wazuh-indexer has one node. No HA. Resolution: acceptable for POC.
+
+**SL-004 — Amazon OpenSearch Service not used**
+selene-opensearch CloudFormation stack deployed but not in use. Costs
+~$60/mo. Pending deletion: aws cloudformation delete-stack --stack-name selene-opensearch
+
+**SL-005 — filebeat replaced by selene-shipper**
+filebeat 7.10.2 (bundled with Wazuh) crashes on AL2023 kernel 6.1 with
+pthread_create: Operation not permitted. selene-shipper.py is the permanent
+replacement. It replicates all official Wazuh filebeat pipeline.json transforms.
+
+**SL-006 — EBS reattach on ASG replacement not automated**
+The 200GB EBS volume must be manually reattached if EC2 is replaced by ASG.
+Resolution: UserData reattach logic in Phase 2.
 
 ---
 
