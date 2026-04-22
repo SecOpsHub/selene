@@ -211,6 +211,17 @@ def main():
 
     while True:
         try:
+            # Detect log rotation: if file is smaller than our offset,
+            # the file was rotated — reset to beginning
+            try:
+                file_size = os.path.getsize(ALERTS_FILE)
+                if offset > file_size:
+                    print(f"[INFO] Log rotation detected (offset {offset} > file size {file_size}). Resetting to 0.", flush=True)
+                    offset = 0
+                    save_offset(0)
+            except FileNotFoundError:
+                pass
+
             with open(ALERTS_FILE, 'rb') as f:
                 f.seek(offset)
                 docs = []
